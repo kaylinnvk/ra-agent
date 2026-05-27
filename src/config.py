@@ -22,6 +22,19 @@ class Settings:
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "").strip()
     gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
     gemini_base_url: str = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta").strip()
+    use_outlook_source: bool = _env_bool("USE_OUTLOOK_SOURCE")
+    microsoft_tenant_id: str = os.getenv("MICROSOFT_TENANT_ID", "").strip()
+    microsoft_client_id: str = os.getenv("MICROSOFT_CLIENT_ID", "").strip()
+    microsoft_client_secret: str = os.getenv("MICROSOFT_CLIENT_SECRET", "").strip()
+    outlook_mailbox: str = os.getenv("OUTLOOK_MAILBOX", "").strip()
+    outlook_folder: str = os.getenv("OUTLOOK_FOLDER", "inbox").strip()
+    outlook_max_messages: int = _env_int("OUTLOOK_MAX_MESSAGES", 25)
+    outlook_search_query: str = os.getenv("OUTLOOK_SEARCH_QUERY", "").strip()
+    graph_base_url: str = os.getenv("GRAPH_BASE_URL", "https://graph.microsoft.com/v1.0").strip()
+    microsoft_token_url: str = os.getenv(
+        "MICROSOFT_TOKEN_URL",
+        f"https://login.microsoftonline.com/{os.getenv('MICROSOFT_TENANT_ID', '').strip()}/oauth2/v2.0/token",
+    ).strip()
     gmail_host: str = os.getenv("GMAIL_HOST", "smtp.gmail.com").strip()
     gmail_port: int = int(os.getenv("GMAIL_PORT", "587"))
     gmail_user: str = os.getenv("GMAIL_USER", "").strip()

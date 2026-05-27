@@ -62,6 +62,24 @@ Run all live Gemini classifier tests:
 python -m tests.test_classifier_llm --live-llm-all --llm-results-file tests/llm_classifier_results.md -v
 ```
 
+## Optional Outlook source
+
+The agent can also read recent Outlook messages through Microsoft Graph and classify them like website items. Create an Azure app registration with Microsoft Graph `Mail.Read` application permission and admin consent, then add:
+
+```env
+USE_OUTLOOK_SOURCE=true
+MICROSOFT_TENANT_ID=your_azure_tenant_id
+MICROSOFT_CLIENT_ID=your_app_client_id
+MICROSOFT_CLIENT_SECRET=your_app_client_secret
+OUTLOOK_MAILBOX=your_mailbox@example.com
+OUTLOOK_FOLDER=inbox
+OUTLOOK_MAX_MESSAGES=25
+OUTLOOK_SEARCH_QUERY=
+GRAPH_BASE_URL=https://graph.microsoft.com/v1.0
+```
+
+`OUTLOOK_SEARCH_QUERY` is optional. Leave `RA_WEBSITE_URL` empty if you only want Outlook scanning.
+
 Run once:
 
 ```bash

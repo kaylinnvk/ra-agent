@@ -10,20 +10,11 @@ from src.db import (
     compute_content_hash,
 )
 from src.scanner import scan_basic_links
+from src.outlook import fetch_outlook_messages, has_outlook_config
 from src.classifier import classify_text
 from src.notifier import notify, format_message
 
-def run_scan() -> None:
-    if not settings.ra_website_url:
-        raise ValueError("RA_WEBSITE_URL is missing. Please set it in your .env file.")
-
-    print(f"Scanning: {settings.ra_website_url}")
-
-    init_db()
-    items = scan_basic_links(settings.ra_website_url)
-
-    print(f"Found {len(items)} links/items on page.")
-
+def process_items(source: str, items) -> tuple[int, int, int]:
     skipped_seen_count = 0
     filtered_non_relevant_count = 0
     new_relevant_count = 0
@@ -46,7 +37,7 @@ def run_scan() -> None:
             continue
 
         save_opportunity(
-            source=settings.ra_website_url,
+            source=source,
             title=item.title,
             url=item.url,
             snippet=item.snippet,
@@ -72,10 +63,50 @@ def run_scan() -> None:
         new_relevant_count += 1
 
     print(
-        "Scan summary: "
+        f"Source summary ({source}): "
         f"new_relevant={new_relevant_count}, "
         f"already_seen={skipped_seen_count}, "
         f"non_relevant={filtered_non_relevant_count}"
+    )
+    return new_relevant_count, skipped_seen_count, filtered_non_relevant_count
+
+
+def run_scan() -> None:
+    if not settings.ra_website_url and not has_outlook_config():
+        raise ValueError(
+            "No sources configured. Set RA_WEBSITE_URL or enable USE_OUTLOOK_SOURCE with Microsoft Graph settings."
+        )
+
+    init_db()
+
+    total_new_relevant = 0
+    total_seen = 0
+    total_non_relevant = 0
+
+    if settings.ra_website_url:
+        print(f"Scanning website: {settings.ra_website_url}")
+        items = scan_basic_links(settings.ra_website_url)
+        print(f"Found {len(items)} links/items on page.")
+        new_count, seen_count, non_relevant_count = process_items(settings.ra_website_url, items)
+        total_new_relevant += new_count
+        total_seen += seen_count
+        total_non_relevant += non_relevant_count
+
+    if has_outlook_config():
+        outlook_source = f"outlook:{settings.outlook_mailbox}/{settings.outlook_folder}"
+        print(f"Scanning Outlook mailbox: {settings.outlook_mailbox}/{settings.outlook_folder}")
+        items = fetch_outlook_messages()
+        print(f"Found {len(items)} Outlook messages.")
+        new_count, seen_count, non_relevant_count = process_items(outlook_source, items)
+        total_new_relevant += new_count
+        total_seen += seen_count
+        total_non_relevant += non_relevant_count
+
+    print(
+        "Scan summary: "
+        f"new_relevant={total_new_relevant}, "
+        f"already_seen={total_seen}, "
+        f"non_relevant={total_non_relevant}"
     )
 
 def main() -> None:
