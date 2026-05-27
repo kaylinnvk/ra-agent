@@ -1,0 +1,313 @@
+from dataclasses import dataclass
+import hashlib
+import json
+import re
+import time
+from urllib.parse import urljoin, urlparse
+import requests
+from bs4 import BeautifulSoup
+from src.config import settings
+
+@dataclass
+class WebItem:
+    title: str
+    url: str
+    snippet: str
+
+
+GENERIC_HEADINGS = {
+    "all positions",
+    "positions",
+    "people",
+    "filter",
+    "sort",
+    "relevant",
+    "date",
+    "hot",
+}
+
+REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/125.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
+    "Connection": "close",
+}
+
+_NO_PROXY_SESSION = requests.Session()
+_NO_PROXY_SESSION.trust_env = False
+
+def _get(url: str, **kwargs) -> requests.Response:
+    if settings.use_system_proxy:
+        return requests.get(url, **kwargs)
+    return _NO_PROXY_SESSION.get(url, **kwargs)
+
+def fetch_html(url: str) -> str:
+    last_error: requests.RequestException | None = None
+
+    for attempt in range(1, 4):
+        try:
+            response = _get(url, headers=REQUEST_HEADERS, timeout=20)
+            response.raise_for_status()
+            return response.text
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt < 3:
+                print(f"Fetch failed on attempt {attempt}/3: {exc}")
+                time.sleep(attempt * 2)
+
+    raise RuntimeError(f"Could not fetch {url} after 3 attempts: {last_error}") from last_error
+
+
+def _clean_text(text: str) -> str:
+    return " ".join((text or "").split())
+
+
+def _looks_like_generic_heading(title: str) -> bool:
+    clean = _clean_text(title).lower()
+    return clean in GENERIC_HEADINGS
+
+
+def _make_fallback_url(page_url: str, title: str, snippet: str, index: int) -> str:
+    digest = hashlib.sha1(f"{title}|{snippet}".encode("utf-8")).hexdigest()[:12]
+    return f"{page_url}#item-{index}-{digest}"
+
+
+def _extract_link_items(soup: BeautifulSoup, page_url: str) -> list[WebItem]:
+    items: list[WebItem] = []
+
+    for a in soup.find_all("a", href=True):
+        title = _clean_text(a.get_text(" ", strip=True))
+        href = a["href"].strip()
+
+        if not title or len(title) < 4:
+            continue
+
+        full_url = urljoin(page_url, href)
+        parent_text = _clean_text(a.parent.get_text(" ", strip=True)) if a.parent else ""
+
+        items.append(
+            WebItem(
+                title=title,
+                url=full_url,
+                snippet=parent_text[:700],
+            )
+        )
+
+    return items
+
+
+def _extract_heading_card_items(soup: BeautifulSoup, page_url: str) -> list[WebItem]:
+    items: list[WebItem] = []
+
+    headings = soup.find_all(["h2", "h3", "h4"])
+    for i, heading in enumerate(headings):
+        title = _clean_text(heading.get_text(" ", strip=True))
+        if len(title) < 6 or len(title) > 180 or _looks_like_generic_heading(title):
+            continue
+
+        block = heading.find_parent(["article", "li", "div", "section"]) or heading
+        snippet = _clean_text(block.get_text(" ", strip=True))
+        if snippet and snippet.startswith(title):
+            snippet = _clean_text(snippet[len(title) :])
+
+        anchor = block.find("a", href=True) if hasattr(block, "find") else None
+        if anchor and anchor.get("href"):
+            url = urljoin(page_url, anchor["href"].strip())
+        else:
+            url = _make_fallback_url(page_url, title=title, snippet=snippet, index=i)
+
+        items.append(
+            WebItem(
+                title=title,
+                url=url,
+                snippet=snippet[:900],
+            )
+        )
+
+    return items
+
+
+def _walk_json(node):
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from _walk_json(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _walk_json(value)
+
+
+def _extract_json_items(soup: BeautifulSoup, page_url: str) -> list[WebItem]:
+    items: list[WebItem] = []
+    scripts = soup.find_all("script")
+
+    for script in scripts:
+        script_text = (script.string or script.get_text() or "").strip()
+        if not script_text:
+            continue
+        if script.get("id") != "__NEXT_DATA__" and "application/json" not in (script.get("type") or ""):
+            continue
+
+        try:
+            payload = json.loads(script_text)
+        except json.JSONDecodeError:
+            continue
+
+        for idx, obj in enumerate(_walk_json(payload)):
+            title = ""
+            for key in ("title", "positionTitle", "postTitle", "name"):
+                value = obj.get(key)
+                if isinstance(value, str) and value.strip():
+                    title = _clean_text(value)
+                    break
+
+            if not title or len(title) < 6 or _looks_like_generic_heading(title):
+                continue
+
+            snippet_parts: list[str] = []
+            for key in ("description", "summary", "content", "professor", "professorName", "status", "deadline"):
+                value = obj.get(key)
+                if isinstance(value, str) and value.strip():
+                    snippet_parts.append(_clean_text(value))
+                if isinstance(value, list):
+                    snippet_parts.extend(_clean_text(str(v)) for v in value if str(v).strip())
+
+            snippet = _clean_text(" | ".join(snippet_parts))
+
+            url = ""
+            for key in ("url", "href", "path", "slug"):
+                value = obj.get(key)
+                if isinstance(value, str) and value.strip():
+                    url = urljoin(page_url, value.strip())
+                    break
+
+            if not url:
+                url = _make_fallback_url(page_url, title=title, snippet=snippet, index=idx)
+
+            items.append(WebItem(title=title, url=url, snippet=snippet[:900]))
+
+    return items
+
+
+def _extract_api_posts(page_url: str, max_pages: int = 3) -> list[WebItem]:
+    """
+    Dynamic-site fallback:
+    tries a common JSON feed shape used by SPA boards (count/next/results).
+    """
+    parsed = urlparse(page_url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    candidate_endpoints = [
+        urljoin(origin, "/api/posts/"),
+        urljoin(page_url, "api/posts/"),
+    ]
+
+    items: list[WebItem] = []
+
+    for endpoint in candidate_endpoints:
+        next_url = endpoint
+        pages = 0
+        local_items: list[WebItem] = []
+
+        while next_url and pages < max_pages:
+            pages += 1
+            try:
+                response = _get(next_url, headers=REQUEST_HEADERS, timeout=20)
+                response.raise_for_status()
+                data = response.json()
+            except Exception:
+                local_items = []
+                break
+
+            results = data.get("results") if isinstance(data, dict) else None
+            if not isinstance(results, list):
+                local_items = []
+                break
+
+            for post in results:
+                if not isinstance(post, dict):
+                    continue
+
+                title = _clean_text(str(post.get("title", "")))
+                if len(title) < 6:
+                    continue
+
+                post_id = str(post.get("id", "")).strip()
+                post_url = urljoin(origin, f"/post/{post_id}") if post_id else endpoint
+
+                tags = []
+                raw_tags = post.get("tags", [])
+                if isinstance(raw_tags, list):
+                    for tag in raw_tags:
+                        if isinstance(tag, dict) and tag.get("name"):
+                            tags.append(str(tag["name"]))
+                        elif isinstance(tag, str):
+                            tags.append(tag)
+
+                snippet_parts = [
+                    str(post.get("description", "") or ""),
+                    str(post.get("requirements", "") or ""),
+                    str(post.get("researcher_name", "") or ""),
+                    str(post.get("school", "") or ""),
+                    str(post.get("status", "") or ""),
+                    str(post.get("deadline", "") or ""),
+                    " ".join(tags),
+                ]
+                snippet = _clean_text(" | ".join(part for part in snippet_parts if part and part.strip()))
+
+                local_items.append(WebItem(title=title, url=post_url, snippet=snippet[:900]))
+
+            next_candidate = data.get("next") if isinstance(data, dict) else None
+            next_url = next_candidate if isinstance(next_candidate, str) and next_candidate.strip() else ""
+
+        if local_items:
+            items.extend(local_items)
+            break
+
+    return items
+
+
+def _deduplicate_items(items: list[WebItem]) -> list[WebItem]:
+    unique: list[WebItem] = []
+    seen: set[tuple[str, str]] = set()
+
+    for item in items:
+        key = (item.url, item.title.lower())
+        if key in seen:
+            continue
+
+        # Ignore likely navigation/static URLs if we got no meaningful context.
+        if not item.snippet and re.search(r"#(top|footer|header)$", item.url.lower()):
+            continue
+
+        seen.add(key)
+        unique.append(item)
+
+    return unique
+
+def scan_basic_links(page_url: str) -> list[WebItem]:
+    """
+    Generic scanner:
+    - Fetches one page
+    - Looks for links
+    - Treats each link as a possible opportunity item
+
+    Later, you can customize this for a specific website's HTML structure.
+    """
+    try:
+        html = fetch_html(page_url)
+    except RuntimeError as exc:
+        print(f"Scan skipped: {exc}")
+        return []
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    items: list[WebItem] = []
+    items.extend(_extract_link_items(soup, page_url))
+    items.extend(_extract_heading_card_items(soup, page_url))
+    items.extend(_extract_json_items(soup, page_url))
+    items.extend(_extract_api_posts(page_url))
+    return _deduplicate_items(items)
