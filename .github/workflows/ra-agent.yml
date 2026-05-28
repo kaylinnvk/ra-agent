@@ -49,5 +49,13 @@ jobs:
       - name: Check database
         run: python -m src.main --check-db
 
+      - name: Print scanner debug context
+        run: |
+          echo "RA_WEBSITE_URL=$RA_WEBSITE_URL"
+          echo "USE_SYSTEM_PROXY=$USE_SYSTEM_PROXY"
+          echo "USE_LLM_CLASSIFIER=$USE_LLM_CLASSIFIER"
+          echo "Fetch methods enabled: requests"
+          echo "Playwright enabled: false"
+
       - name: Run RA agent
         run: python -m src.main --once

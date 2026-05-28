@@ -55,8 +55,8 @@ class OutlookSourceTests(unittest.TestCase):
 
         with (
             patch.object(outlook, "settings", outlook_settings()),
-            patch.object(outlook.requests, "post") as post,
-            patch.object(outlook.requests, "get") as get,
+            patch.object(outlook, "_post") as post,
+            patch.object(outlook, "_get") as get,
         ):
             post.return_value = MockResponse({"access_token": "token-123"})
             get.return_value = MockResponse({"value": [message]})
@@ -84,8 +84,8 @@ class OutlookSourceTests(unittest.TestCase):
     def test_adds_search_query_when_configured(self):
         with (
             patch.object(outlook, "settings", outlook_settings(outlook_search_query='RA "LLM"')),
-            patch.object(outlook.requests, "post") as post,
-            patch.object(outlook.requests, "get") as get,
+            patch.object(outlook, "_post") as post,
+            patch.object(outlook, "_get") as get,
         ):
             post.return_value = MockResponse({"access_token": "token-123"})
             get.return_value = MockResponse({"value": []})

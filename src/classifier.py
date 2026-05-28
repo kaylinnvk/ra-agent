@@ -20,6 +20,20 @@ class ClassificationResult:
     raw_llm_response: dict[str, Any] | None = None
 
 
+_SYSTEM_PROXY_SESSION = requests.Session()
+_NO_PROXY_SESSION = requests.Session()
+_NO_PROXY_SESSION.trust_env = False
+
+
+def _post(url: str, **kwargs) -> requests.Response:
+    use_system_proxy = getattr(settings, "use_system_proxy", False)
+    session = _SYSTEM_PROXY_SESSION if use_system_proxy else _NO_PROXY_SESSION
+    if not use_system_proxy:
+        session.trust_env = False
+        _NO_PROXY_SESSION.trust_env = False
+    return session.post(url, **kwargs)
+
+
 def _log_llm_attempt(
     *,
     run_id: int | None,
@@ -237,7 +251,7 @@ def classify_with_llm(
         f"Snippet: {snippet[:2500]}"
     )
 
-    response = requests.post(
+    response = _post(
         f"{settings.gemini_base_url.rstrip('/')}/models/{settings.gemini_model}:generateContent",
         headers={
             "Content-Type": "application/json",

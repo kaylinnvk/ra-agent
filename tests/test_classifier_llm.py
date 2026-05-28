@@ -243,7 +243,7 @@ class LLMClassifierTests(unittest.TestCase):
 
         with (
             patch.object(classifier, "settings", llm_settings()),
-            patch.object(classifier.requests, "post", side_effect=RuntimeError("network down")),
+            patch.object(classifier, "_post", side_effect=RuntimeError("network down")),
             patch.object(classifier, "_log_llm_attempt") as log_llm_attempt,
             patch("builtins.print"),
         ):

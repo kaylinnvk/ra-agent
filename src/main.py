@@ -111,6 +111,7 @@ def process_items(
             )
         new_relevant_count += 1
 
+    print(f"[scanner-debug] posts_after_gemini_filtering: {new_relevant_count}")
     print(
         f"Source summary ({source}): "
         f"new_posts={new_posts_count}, "

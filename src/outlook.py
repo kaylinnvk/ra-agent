@@ -10,6 +10,27 @@ from src.scanner import WebItem
 
 GRAPH_SCOPE = "https://graph.microsoft.com/.default"
 
+_SYSTEM_PROXY_SESSION = requests.Session()
+_NO_PROXY_SESSION = requests.Session()
+_NO_PROXY_SESSION.trust_env = False
+
+
+def _request(method: str, url: str, **kwargs) -> requests.Response:
+    use_system_proxy = getattr(settings, "use_system_proxy", False)
+    session = _SYSTEM_PROXY_SESSION if use_system_proxy else _NO_PROXY_SESSION
+    if not use_system_proxy:
+        session.trust_env = False
+        _NO_PROXY_SESSION.trust_env = False
+    return session.request(method, url, **kwargs)
+
+
+def _get(url: str, **kwargs) -> requests.Response:
+    return _request("GET", url, **kwargs)
+
+
+def _post(url: str, **kwargs) -> requests.Response:
+    return _request("POST", url, **kwargs)
+
 
 def has_outlook_config() -> bool:
     return bool(
@@ -22,7 +43,7 @@ def has_outlook_config() -> bool:
 
 
 def get_graph_access_token() -> str:
-    response = requests.post(
+    response = _post(
         settings.microsoft_token_url,
         data={
             "client_id": settings.microsoft_client_id,
@@ -132,7 +153,7 @@ def fetch_outlook_messages() -> list[WebItem]:
         params["$search"] = f'"{search_query.replace(chr(34), "")}"'
         params.pop("$orderby", None)
 
-    response = requests.get(url, headers=headers, params=params, timeout=30)
+    response = _get(url, headers=headers, params=params, timeout=30)
     response.raise_for_status()
 
     messages = response.json().get("value", [])

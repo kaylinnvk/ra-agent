@@ -15,6 +15,14 @@ class WebItem:
     snippet: str
 
 
+@dataclass
+class FetchDebug:
+    method: str = "requests"
+    http_status: int | None = None
+    response_length: int = 0
+    raw_html_start: str = ""
+
+
 GENERIC_HEADINGS = {
     "all positions",
     "positions",
@@ -49,16 +57,36 @@ def _get(url: str, **kwargs) -> requests.Response:
     session = _SYSTEM_PROXY_SESSION if settings.use_system_proxy else _NO_PROXY_SESSION
     if not settings.use_system_proxy:
         session.trust_env = False
+        _NO_PROXY_SESSION.trust_env = False
     return session.get(url, **kwargs)
 
+def _safe_preview(text: str, limit: int = 500) -> str:
+    return (text or "")[:limit].replace("\r", "\\r").replace("\n", "\\n")
+
+
+def _log_debug(label: str, value) -> None:
+    print(f"[scanner-debug] {label}: {value}")
+
+
 def fetch_html(url: str) -> str:
+    html, _debug = fetch_html_with_debug(url)
+    return html
+
+
+def fetch_html_with_debug(url: str) -> tuple[str, FetchDebug]:
     last_error: requests.RequestException | None = None
 
     for attempt in range(1, 4):
         try:
             response = _get(url, headers=REQUEST_HEADERS, timeout=20)
             response.raise_for_status()
-            return response.text
+            html = response.text
+            return html, FetchDebug(
+                method="requests",
+                http_status=response.status_code,
+                response_length=len(html),
+                raw_html_start=_safe_preview(html),
+            )
         except requests.RequestException as exc:
             last_error = exc
             if attempt < 3:
@@ -135,6 +163,15 @@ def _extract_heading_card_items(soup: BeautifulSoup, page_url: str) -> list[WebI
         )
 
     return items
+
+
+def _count_candidate_card_elements(soup: BeautifulSoup) -> int:
+    candidates = 0
+    for heading in soup.find_all(["h2", "h3", "h4"]):
+        title = _clean_text(heading.get_text(" ", strip=True))
+        if len(title) >= 6 and len(title) <= 180 and not _looks_like_generic_heading(title):
+            candidates += 1
+    return candidates
 
 
 def _walk_json(node):
@@ -222,16 +259,22 @@ def _extract_api_posts(page_url: str, max_pages: int = 3) -> list[WebItem]:
             pages += 1
             try:
                 response = _get(next_url, headers=API_REQUEST_HEADERS, timeout=20)
+                _log_debug("api_posts_endpoint", next_url)
+                _log_debug("api_posts_http_status_code", getattr(response, "status_code", "unknown"))
+                _log_debug("api_posts_response_length", len(getattr(response, "text", "") or ""))
                 response.raise_for_status()
                 data = response.json()
-            except Exception:
+            except Exception as exc:
+                _log_debug("api_posts_error", exc)
                 local_items = []
                 break
 
             results = data.get("results") if isinstance(data, dict) else None
             if not isinstance(results, list):
+                _log_debug("api_posts_results_count", "not_a_list")
                 local_items = []
                 break
+            _log_debug("api_posts_results_count", len(results))
 
             for post in results:
                 if not isinstance(post, dict):
@@ -308,17 +351,43 @@ def scan_basic_links(page_url: str) -> list[WebItem]:
 
     Later, you can customize this for a specific website's HTML structure.
     """
+    _log_debug("source_url", page_url)
+    _log_debug("fetch_method", "requests")
+    _log_debug("use_system_proxy", settings.use_system_proxy)
+    _log_debug("requests_trust_env", _SYSTEM_PROXY_SESSION.trust_env if settings.use_system_proxy else _NO_PROXY_SESSION.trust_env)
+    _log_debug("playwright_used", "false")
+    _log_debug("playwright_browser_launched", "not_applicable")
+
     try:
-        html = fetch_html(page_url)
+        html, fetch_debug = fetch_html_with_debug(page_url)
     except RuntimeError as exc:
         print(f"Scan skipped: {exc}")
+        _log_debug("parsed_posts_before_deduplication", 0)
+        _log_debug("posts_after_deduplication", 0)
         return []
 
+    _log_debug("http_status_code", fetch_debug.http_status)
+    _log_debug("response_length", fetch_debug.response_length)
+    _log_debug("raw_html_first_500", fetch_debug.raw_html_start)
+
     soup = BeautifulSoup(html, "html.parser")
+    page_title = _clean_text(soup.title.get_text(" ", strip=True)) if soup.title else ""
+    a_tag_count = len(soup.find_all("a"))
+    card_candidate_count = _count_candidate_card_elements(soup)
+
+    _log_debug("page_title", page_title or "(none)")
+    _log_debug("a_tags_found", a_tag_count)
+    _log_debug("candidate_post_card_elements_found", card_candidate_count)
+    _log_debug("playwright_links_after_rendering", "not_applicable")
+    _log_debug("playwright_cards_after_rendering", "not_applicable")
 
     items: list[WebItem] = []
     items.extend(_extract_link_items(soup, page_url))
     items.extend(_extract_heading_card_items(soup, page_url))
     items.extend(_extract_json_items(soup, page_url))
     items.extend(_extract_api_posts(page_url))
-    return _deduplicate_items(items)
+    deduplicated = _deduplicate_items(items)
+
+    _log_debug("parsed_posts_before_deduplication", len(items))
+    _log_debug("posts_after_deduplication", len(deduplicated))
+    return deduplicated
