@@ -1,84 +1,40 @@
 # RA Opportunity Monitor Agent
 
-A small Python agent that scans an RA/research recruitment webpage, filters likely RA openings, deduplicates them with SQLite, and notifies you.
+A small Python agent that scans an RA/research recruitment webpage, filters likely AI/ML-related RA openings, deduplicates posts by normalized URL plus content hash, and notifies you by Gmail.
 
-## Phase 1 MVP
-- Scan 1 RA recruitment website
-- Extract posts from links, card-style headings, and dynamic API feeds when available
-- Keyword + simple relevance scoring (prioritizing AI/LLM-related openings)
-- Save seen posts in SQLite with URL + content-hash deduplication
-- Print or Gmail-notify new relevant openings
+Outlook/Microsoft Graph scanning is intentionally skipped for now.
+
+## Features
+
+- Scan one RA recruitment website
+- Extract posts from links, card-style headings, JSON data, and simple dynamic API feeds
+- Keyword classifier with optional Gemini relevance filtering
+- Persistent deduplication with SQLite locally or Postgres/Supabase in production
+- Gmail SMTP notification for new relevant openings
+- Run/source/finding logs for deployed runs
 
 ## Setup
 
 ```bash
-cd ra-opportunity-agent-starter
 python -m venv .venv
 
-# macOS/Linux
-source .venv/bin/activate
-
 # Windows PowerShell
-# .venv\Scripts\Activate.ps1
+.venv\Scripts\Activate.ps1
 
 pip install -r requirements.txt
-cp .env.example .env
+copy .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` for local development:
 
 ```env
 RA_WEBSITE_URL=https://example.com/ra-recruitment-page
 CHECK_INTERVAL_MINUTES=360
 MIN_SCORE=2
-USE_SYSTEM_PROXY=false
-USE_LLM_CLASSIFIER=false
+
+DB_BACKEND=sqlite
+SQLITE_PATH=data/ra_agent.sqlite
 ```
-
-By default, scanner requests ignore system proxy settings. Set `USE_SYSTEM_PROXY=true` only if you intentionally need your Windows or shell proxy settings.
-
-## Optional LLM classification
-
-The default classifier uses local keyword scoring. To have an LLM determine whether each item is an RA opening, extract professor/group name, topic area, deadline, fit score, and explain the match, add:
-
-```env
-USE_LLM_CLASSIFIER=true
-GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=gemini-2.0-flash
-GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
-```
-
-If LLM classification fails or is not configured, the agent falls back to the local keyword classifier.
-
-Run one live Gemini classifier smoke test with a mock RA opening:
-
-```bash
-python -m tests.test_classifier_llm --live-llm --llm-results-file tests/llm_classifier_results.md -v
-```
-
-Run all live Gemini classifier tests:
-
-```bash
-python -m tests.test_classifier_llm --live-llm-all --llm-results-file tests/llm_classifier_results.md -v
-```
-
-## Optional Outlook source
-
-The agent can also read recent Outlook messages through Microsoft Graph and classify them like website items. Create an Azure app registration with Microsoft Graph `Mail.Read` application permission and admin consent, then add:
-
-```env
-USE_OUTLOOK_SOURCE=true
-MICROSOFT_TENANT_ID=your_azure_tenant_id
-MICROSOFT_CLIENT_ID=your_app_client_id
-MICROSOFT_CLIENT_SECRET=your_app_client_secret
-OUTLOOK_MAILBOX=your_mailbox@example.com
-OUTLOOK_FOLDER=inbox
-OUTLOOK_MAX_MESSAGES=25
-OUTLOOK_SEARCH_QUERY=
-GRAPH_BASE_URL=https://graph.microsoft.com/v1.0
-```
-
-`OUTLOOK_SEARCH_QUERY` is optional. Leave `RA_WEBSITE_URL` empty if you only want Outlook scanning.
 
 Run once:
 
@@ -86,13 +42,90 @@ Run once:
 python -m src.main --once
 ```
 
-Run continuously:
+Run continuously on your machine:
 
 ```bash
 python -m src.main
 ```
 
-## Optional Gmail notification
+## Database
+
+The agent uses SQLite unless `DB_BACKEND=postgres` and `DATABASE_URL` is set. GitHub Actions should use Postgres because files created during scheduled workflow runs are not persistent.
+
+Required database env vars:
+
+```env
+DB_BACKEND=sqlite
+SQLITE_PATH=data/ra_agent.sqlite
+DATABASE_URL=
+```
+
+For production:
+
+```env
+DB_BACKEND=postgres
+DATABASE_URL=postgresql://...
+```
+
+The agent creates these tables automatically:
+
+- `seen_posts`
+- `agent_runs`
+- `source_logs`
+- `findings`
+
+## Supabase Postgres
+
+1. Create a Supabase project at `https://supabase.com`.
+2. Open Project Settings, then Database.
+3. Copy the connection string for the transaction/session pooler or direct database connection.
+4. Replace the password placeholder with your database password.
+5. Use that value as `DATABASE_URL` in GitHub Actions Secrets.
+
+Supabase URLs usually look like:
+
+```text
+postgresql://postgres.your-project:password@aws-...pooler.supabase.com:6543/postgres
+```
+
+## GitHub Actions Deployment
+
+The workflow lives at `.github/workflows/ra-agent.yml`. It runs every 45 minutes and can also be started manually.
+
+Add these GitHub repository secrets in Settings, Secrets and variables, Actions:
+
+```text
+DATABASE_URL
+RA_WEBSITE_URL
+MIN_SCORE
+USE_LLM_CLASSIFIER
+GEMINI_API_KEY
+GEMINI_MODEL
+GEMINI_BASE_URL
+GMAIL_HOST
+GMAIL_PORT
+GMAIL_USER
+GMAIL_APP_PASSWORD
+GMAIL_TO
+GMAIL_FROM
+```
+
+Recommended values:
+
+```text
+MIN_SCORE=2
+USE_LLM_CLASSIFIER=true
+GEMINI_MODEL=gemini-2.0-flash
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+GMAIL_HOST=smtp.gmail.com
+GMAIL_PORT=587
+```
+
+`GMAIL_FROM` is optional. If it is empty, the agent uses `GMAIL_USER`.
+
+To manually trigger the workflow, open GitHub Actions, choose `RA Agent`, then select `Run workflow`.
+
+## Gmail Notification
 
 This uses Gmail SMTP with STARTTLS. Create a Gmail App Password and use that here, not your normal Gmail password.
 
@@ -105,29 +138,69 @@ GMAIL_TO=yourgmail@gmail.com
 GMAIL_FROM=yourgmail@gmail.com
 ```
 
-`GMAIL_FROM` is optional. If it is not set, the agent uses `GMAIL_USER` as the sender.
+If Gmail is not configured, or if Gmail sending fails, notifications print to the console.
 
-If Gmail is not configured, or if Gmail sending fails, notifications will print to console.
+## Optional Gemini Filtering
 
-## Project structure
+The default classifier uses local keyword scoring. To have Gemini classify each item, extract professor/group name, topic area, deadline, fit score, and explain the match, add:
 
-```text
-ra_agent/
-  main.py          # entry point and scheduler
-  scanner.py       # webpage fetching + HTML parsing
-  classifier.py    # keyword-based scoring for now
-  db.py            # SQLite deduplication
-  notifier.py      # console/Gmail notifications
-  config.py        # env variables
+```env
+USE_LLM_CLASSIFIER=true
+GEMINI_API_KEY=your_gemini_api_key
+GEMINI_MODEL=gemini-2.0-flash
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
 ```
 
-## Next phases
+If Gemini fails or is not configured, the agent falls back to the local keyword classifier.
 
-Phase 2:
-- Add LLM classifier for title + description relevance.
+## Deployment Checks
 
-Phase 3:
-- Add Outlook scanning through Microsoft Graph.
+Test the configured database:
 
-Phase 4:
-- Add a small dashboard with FastAPI + Next.js.
+```bash
+python -m src.main --check-db
+```
+
+Send a Gmail smoke-test email:
+
+```bash
+python -m src.main --test-gmail
+```
+
+Run one scan without writing findings or sending notifications:
+
+```bash
+python -m src.main --dry-run
+```
+
+## Tests
+
+Compile the main modules:
+
+```bash
+python -m py_compile src/config.py src/notifier.py src/main.py
+```
+
+Run existing tests:
+
+```bash
+python -m unittest
+```
+
+Live Gemini tests are opt-in because they call the API:
+
+```bash
+python -m tests.test_classifier_llm --live-llm --llm-results-file tests/llm_classifier_results.md -v
+```
+
+## Project Structure
+
+```text
+src/
+  main.py        # entry point, scheduler, run logging
+  scanner.py     # webpage fetching + parsing
+  classifier.py  # keyword and Gemini relevance classification
+  db.py          # SQLite/Postgres persistence and deduplication
+  notifier.py    # console/Gmail notifications
+  config.py      # env variables
+```

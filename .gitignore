@@ -1,2 +1,6 @@
 .env
 tests/llm_classifier_results*.md
+__pycache__/
+*.py[cod]
+data/*.sqlite
+data/*.sqlite-*

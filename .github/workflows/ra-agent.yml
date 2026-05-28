@@ -1,0 +1,53 @@
+name: RA Agent
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Runs every hour, at minute 0, UTC
+    - cron: "0 * * * *"
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      DB_BACKEND: postgres
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      RA_WEBSITE_URL: ${{ secrets.RA_WEBSITE_URL }}
+      MIN_SCORE: ${{ secrets.MIN_SCORE }}
+      USE_SYSTEM_PROXY: "false"
+
+      USE_LLM_CLASSIFIER: ${{ secrets.USE_LLM_CLASSIFIER }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+      GEMINI_BASE_URL: ${{ secrets.GEMINI_BASE_URL }}
+
+      GMAIL_HOST: ${{ secrets.GMAIL_HOST }}
+      GMAIL_PORT: ${{ secrets.GMAIL_PORT }}
+      GMAIL_USER: ${{ secrets.GMAIL_USER }}
+      GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+      GMAIL_TO: ${{ secrets.GMAIL_TO }}
+      GMAIL_FROM: ${{ secrets.GMAIL_FROM }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check database
+        run: python -m src.main --check-db
+
+      - name: Run RA agent
+        run: python -m src.main --once

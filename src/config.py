@@ -22,6 +22,9 @@ class Settings:
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "").strip()
     gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
     gemini_base_url: str = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta").strip()
+    db_backend: str = os.getenv("DB_BACKEND", "sqlite").strip().lower()
+    sqlite_path: str = os.getenv("SQLITE_PATH", "data/ra_agent.sqlite").strip()
+    database_url: str = os.getenv("DATABASE_URL", "").strip()
     use_outlook_source: bool = _env_bool("USE_OUTLOOK_SOURCE")
     microsoft_tenant_id: str = os.getenv("MICROSOFT_TENANT_ID", "").strip()
     microsoft_client_id: str = os.getenv("MICROSOFT_CLIENT_ID", "").strip()
@@ -36,7 +39,7 @@ class Settings:
         f"https://login.microsoftonline.com/{os.getenv('MICROSOFT_TENANT_ID', '').strip()}/oauth2/v2.0/token",
     ).strip()
     gmail_host: str = os.getenv("GMAIL_HOST", "smtp.gmail.com").strip()
-    gmail_port: int = int(os.getenv("GMAIL_PORT", "587"))
+    gmail_port: int = _env_int("GMAIL_PORT", 587)
     gmail_user: str = os.getenv("GMAIL_USER", "").strip()
     gmail_app_password: str = os.getenv("GMAIL_APP_PASSWORD", "").strip()
     gmail_to: str = os.getenv("GMAIL_TO", "").strip()
