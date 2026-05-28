@@ -1,9 +1,45 @@
 import smtplib
 from email.message import EmailMessage
+import re
 
 from src.config import settings
 
 EMAIL_SUBJECT = "[RA ALERT] New Research Assistant Opening Found"
+
+
+def _extract_professor_name(snippet: str) -> str:
+    match = re.search(r"(?:Researcher|Professor|Prof\.?):\s*([^|]+)", snippet or "", re.IGNORECASE)
+    if not match:
+        return ""
+    return " ".join(match.group(1).split()).strip()
+
+
+def _merge_professor_group(professor_group: str, snippet: str) -> str:
+    professor_group = " ".join((professor_group or "").split()).strip()
+    professor_name = _extract_professor_name(snippet)
+
+    if not professor_name:
+        return professor_group
+    if not professor_group:
+        return professor_name
+    if professor_name.lower() == professor_group.lower():
+        return professor_group
+    return f"{professor_name} / {professor_group}"
+
+
+def _plain_text_summary(snippet: str) -> str:
+    text = snippet or ""
+    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", text)
+    text = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", text)
+    text = re.sub(r"(?m)^\s*[-*+]\s+", "", text)
+    text = re.sub(r"(?m)^\s*\d+[.)]\s+", "", text)
+    text = re.sub(r"(?m)^\s*[-*_]{3,}\s*$", " ", text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
+    text = re.sub(r"__([^_]+)__", r"\1", text)
+    text = re.sub(r"(?<!\w)[*_]([^*_]+)[*_](?!\w)", r"\1", text)
+    return " ".join(text.split())
+
 
 def format_message(
     title: str,
@@ -18,9 +54,10 @@ def format_message(
     classifier_source: str = "keyword",
 ) -> str:
     keyword_text = ", ".join(matched_keywords[:8]) if matched_keywords else "None"
-    compact_snippet = " ".join((snippet or "").split())
+    compact_snippet = _plain_text_summary(snippet)
     if len(compact_snippet) > 420:
         compact_snippet = compact_snippet[:420].rstrip() + "..."
+    professor_group = _merge_professor_group(professor_group, snippet)
 
     lines = [
         "[RA Opportunity Monitor]",

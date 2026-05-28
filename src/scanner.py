@@ -36,14 +36,20 @@ REQUEST_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
     "Connection": "close",
 }
+API_REQUEST_HEADERS = {
+    **REQUEST_HEADERS,
+    "Accept": "application/json",
+}
 
+_SYSTEM_PROXY_SESSION = requests.Session()
 _NO_PROXY_SESSION = requests.Session()
 _NO_PROXY_SESSION.trust_env = False
 
 def _get(url: str, **kwargs) -> requests.Response:
-    if settings.use_system_proxy:
-        return requests.get(url, **kwargs)
-    return _NO_PROXY_SESSION.get(url, **kwargs)
+    session = _SYSTEM_PROXY_SESSION if settings.use_system_proxy else _NO_PROXY_SESSION
+    if not settings.use_system_proxy:
+        session.trust_env = False
+    return session.get(url, **kwargs)
 
 def fetch_html(url: str) -> str:
     last_error: requests.RequestException | None = None
@@ -215,7 +221,7 @@ def _extract_api_posts(page_url: str, max_pages: int = 3) -> list[WebItem]:
         while next_url and pages < max_pages:
             pages += 1
             try:
-                response = _get(next_url, headers=REQUEST_HEADERS, timeout=20)
+                response = _get(next_url, headers=API_REQUEST_HEADERS, timeout=20)
                 response.raise_for_status()
                 data = response.json()
             except Exception:
@@ -247,13 +253,18 @@ def _extract_api_posts(page_url: str, max_pages: int = 3) -> list[WebItem]:
                         elif isinstance(tag, str):
                             tags.append(tag)
 
+                researcher_name = _clean_text(str(post.get("researcher_name", "") or ""))
+                school = _clean_text(str(post.get("school", "") or ""))
+                status = _clean_text(str(post.get("status", "") or ""))
+                deadline = _clean_text(str(post.get("deadline", "") or ""))
+
                 snippet_parts = [
                     str(post.get("description", "") or ""),
                     str(post.get("requirements", "") or ""),
-                    str(post.get("researcher_name", "") or ""),
-                    str(post.get("school", "") or ""),
-                    str(post.get("status", "") or ""),
-                    str(post.get("deadline", "") or ""),
+                    f"Researcher: {researcher_name}" if researcher_name else "",
+                    f"School: {school}" if school else "",
+                    f"Status: {status}" if status else "",
+                    f"Deadline: {deadline}" if deadline else "",
                     " ".join(tags),
                 ]
                 snippet = _clean_text(" | ".join(part for part in snippet_parts if part and part.strip()))
