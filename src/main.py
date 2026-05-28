@@ -44,6 +44,8 @@ def process_items(
             title=item.title,
             snippet=item.snippet,
             min_score=settings.min_score,
+            run_id=run_id,
+            url=item.url,
         )
 
         if not result.is_relevant:

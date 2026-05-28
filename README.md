@@ -73,6 +73,7 @@ The agent creates these tables automatically:
 - `agent_runs`
 - `source_logs`
 - `findings`
+- `llm_logs`
 
 ## Supabase Postgres
 
@@ -124,6 +125,40 @@ GMAIL_PORT=587
 `GMAIL_FROM` is optional. If it is empty, the agent uses `GMAIL_USER`.
 
 To manually trigger the workflow, open GitHub Actions, choose `RA Agent`, then select `Run workflow`.
+
+## Web Dashboard
+
+The repo also includes a Next.js + Tailwind dashboard for scanner logs. It reads the same Supabase/Postgres database used by the GitHub Actions scanner and displays:
+
+- recent `agent_runs`
+- recent `source_logs`
+- latest `findings`
+- Gemini API response logs from `llm_logs`
+- total runs, successful runs, failed runs, relevant posts, and notifications sent
+
+Run it locally:
+
+```bash
+npm install
+npm run dev
+```
+
+Set `DATABASE_URL` in your local environment or `.env` to the Supabase Postgres connection string. The dashboard uses this variable only on the server.
+
+Deploy it on Vercel:
+
+1. Import this GitHub repository into Vercel.
+2. Set the Framework Preset to Next.js.
+3. Add `DATABASE_URL` in Vercel Project Settings, Environment Variables.
+4. Use the same Supabase Postgres connection string as the scanner workflow.
+5. Deploy from the connected GitHub branch.
+
+The app uses Node.js server rendering for the `/` dashboard route, so Vercel should use Node 20 or newer.
+
+The dashboard menu has two views:
+
+- `Overview`: scanner runs, source checks, findings, and summary metrics
+- `Gemini logs`: raw Gemini response/error cards; successful calls are green and failed calls are red
 
 ## Gmail Notification
 
@@ -203,4 +238,8 @@ src/
   db.py          # SQLite/Postgres persistence and deduplication
   notifier.py    # console/Gmail notifications
   config.py      # env variables
+app/
+  page.tsx       # Next.js dashboard page
+lib/
+  db.ts          # Postgres queries for dashboard data
 ```

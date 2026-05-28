@@ -1,4 +1,5 @@
 import hashlib
+import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -128,6 +129,20 @@ def _create_sqlite_schema(conn: sqlite3.Connection) -> None:
             notified INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS llm_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER,
+            title TEXT NOT NULL,
+            url TEXT,
+            provider TEXT NOT NULL,
+            model TEXT NOT NULL,
+            status TEXT NOT NULL,
+            response_json TEXT,
+            parsed_json TEXT,
+            error_message TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         """
     )
     conn.execute(
@@ -135,6 +150,8 @@ def _create_sqlite_schema(conn: sqlite3.Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_findings_run_id ON findings(run_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_source_logs_run_id ON source_logs(run_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_logs_run_id ON llm_logs(run_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_logs_created_at ON llm_logs(created_at)")
 
 
 def _create_postgres_schema(conn: Any) -> None:
@@ -202,10 +219,29 @@ def _create_postgres_schema(conn: Any) -> None:
             """
         )
         cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS llm_logs (
+                id BIGSERIAL PRIMARY KEY,
+                run_id BIGINT REFERENCES agent_runs(id) ON DELETE SET NULL,
+                title TEXT NOT NULL,
+                url TEXT,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                status TEXT NOT NULL,
+                response_json TEXT,
+                parsed_json TEXT,
+                error_message TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_seen_posts_url_hash ON seen_posts(normalized_url, content_hash)"
         )
         cur.execute("CREATE INDEX IF NOT EXISTS idx_findings_run_id ON findings(run_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_source_logs_run_id ON source_logs(run_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_llm_logs_run_id ON llm_logs(run_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_llm_logs_created_at ON llm_logs(created_at)")
 
 
 def _sqlite_table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
@@ -446,6 +482,52 @@ def save_finding(
                 relevance_score,
                 reason or None,
                 notified if db_backend() == "postgres" else int(notified),
+                _now_iso(),
+            ),
+        )
+
+
+def log_llm_response(
+    run_id: int | None,
+    title: str,
+    url: str = "",
+    provider: str = "gemini",
+    model: str = "",
+    status: str = "success",
+    response_json: Any | None = None,
+    parsed_json: Any | None = None,
+    error_message: str = "",
+) -> None:
+    ph = _placeholder()
+    response_text = (
+        json.dumps(response_json, ensure_ascii=False)
+        if response_json is not None
+        else None
+    )
+    parsed_text = (
+        json.dumps(parsed_json, ensure_ascii=False)
+        if parsed_json is not None
+        else None
+    )
+
+    with _connect() as conn:
+        _execute(
+            conn,
+            f"""
+            INSERT INTO llm_logs
+            (run_id, title, url, provider, model, status, response_json, parsed_json, error_message, created_at)
+            VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+            """,
+            (
+                run_id,
+                title,
+                url or None,
+                provider,
+                model,
+                status,
+                response_text,
+                parsed_text,
+                error_message or None,
                 _now_iso(),
             ),
         )

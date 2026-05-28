@@ -244,10 +244,14 @@ class LLMClassifierTests(unittest.TestCase):
         with (
             patch.object(classifier, "settings", llm_settings()),
             patch.object(classifier.requests, "post", side_effect=RuntimeError("network down")),
+            patch.object(classifier, "_log_llm_attempt") as log_llm_attempt,
             patch("builtins.print"),
         ):
             result = classifier.classify_text(title=title, snippet=snippet, min_score=2)
 
+        log_llm_attempt.assert_called_once()
+        self.assertEqual(log_llm_attempt.call_args.kwargs["status"], "failed")
+        self.assertEqual(log_llm_attempt.call_args.kwargs["title"], title)
         self.assertEqual(result.source, "keyword")
         self.assertTrue(result.is_ra_opening)
         self.assertTrue(result.is_relevant)

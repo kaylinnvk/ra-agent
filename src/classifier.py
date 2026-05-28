@@ -19,6 +19,49 @@ class ClassificationResult:
     source: str = "keyword"
     raw_llm_response: dict[str, Any] | None = None
 
+
+def _log_llm_attempt(
+    *,
+    run_id: int | None,
+    title: str,
+    url: str,
+    status: str,
+    response_json: Any | None = None,
+    parsed_json: Any | None = None,
+    error_message: str = "",
+) -> None:
+    try:
+        from src.db import log_llm_response
+
+        log_llm_response(
+            run_id=run_id,
+            title=title,
+            url=url,
+            provider="gemini",
+            model=settings.gemini_model,
+            status=status,
+            response_json=response_json,
+            parsed_json=parsed_json,
+            error_message=error_message,
+        )
+    except Exception as exc:
+        print(f"LLM response logging failed: {exc}")
+
+
+def _error_details(exc: Exception) -> str:
+    response = getattr(exc, "response", None)
+    if response is None:
+        return str(exc)
+
+    details = {
+        "type": type(exc).__name__,
+        "message": str(exc),
+        "status_code": getattr(response, "status_code", None),
+        "response_body": getattr(response, "text", ""),
+    }
+    return json.dumps(details, ensure_ascii=False)
+
+
 KEYWORDS = {
     # English
     "ra": 2,
@@ -106,18 +149,42 @@ FOCUS_KEYWORDS = {
     "深度伪造",
 }
 
-def classify_text(title: str, snippet: str = "", min_score: int = 2) -> ClassificationResult:
+def classify_text(
+    title: str,
+    snippet: str = "",
+    min_score: int = 2,
+    run_id: int | None = None,
+    url: str = "",
+) -> ClassificationResult:
     keyword_result = classify_with_keywords(title=title, snippet=snippet, min_score=min_score)
 
     if settings.use_llm_classifier and settings.gemini_api_key:
         try:
-            return classify_with_llm(
+            result = classify_with_llm(
                 title=title,
                 snippet=snippet,
                 min_score=min_score,
                 keyword_result=keyword_result,
             )
+            raw_response = (result.raw_llm_response or {}).get("provider_response")
+            parsed_json = (result.raw_llm_response or {}).get("parsed_json")
+            _log_llm_attempt(
+                run_id=run_id,
+                title=title,
+                url=url,
+                status="success",
+                response_json=raw_response,
+                parsed_json=parsed_json,
+            )
+            return result
         except Exception as exc:
+            _log_llm_attempt(
+                run_id=run_id,
+                title=title,
+                url=url,
+                status="failed",
+                error_message=_error_details(exc),
+            )
             print(f"LLM classification failed; using keyword result: {exc}")
 
     return keyword_result
