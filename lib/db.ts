@@ -56,6 +56,7 @@ export type DashboardData = {
   sourceLogs: SourceLog[];
   findings: Finding[];
   llmLogs: LlmLog[];
+  llmLogsAvailable: boolean;
   totals: {
     totalRuns: number;
     successfulRuns: number;
@@ -86,9 +87,68 @@ function getPool() {
   return pool;
 }
 
+function isMissingTableError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "42P01"
+  );
+}
+
+async function getLlmLogData(db: Pool) {
+  try {
+    const [logsResult, totalsResult] = await Promise.all([
+      db.query<LlmLog>(
+        `
+        SELECT id, run_id, title, url, provider, model, status, response_json,
+               parsed_json, error_message, created_at
+        FROM llm_logs
+        ORDER BY created_at DESC
+        LIMIT 50
+        `,
+      ),
+      db.query<{
+        llm_successes: string;
+        llm_failures: string;
+      }>(
+        `
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'success')::text AS llm_successes,
+          COUNT(*) FILTER (WHERE status != 'success')::text AS llm_failures
+        FROM llm_logs
+        `,
+      ),
+    ]);
+
+    const totals = totalsResult.rows[0] ?? {
+      llm_successes: "0",
+      llm_failures: "0",
+    };
+
+    return {
+      available: true,
+      logs: logsResult.rows,
+      successes: Number(totals.llm_successes),
+      failures: Number(totals.llm_failures),
+    };
+  } catch (error) {
+    if (!isMissingTableError(error)) {
+      throw error;
+    }
+
+    return {
+      available: false,
+      logs: [],
+      successes: 0,
+      failures: 0,
+    };
+  }
+}
+
 export async function getDashboardData(): Promise<DashboardData> {
   const db = getPool();
-  const [runsResult, sourceLogsResult, findingsResult, llmLogsResult, totalsResult, llmTotalsResult] = await Promise.all([
+  const [runsResult, sourceLogsResult, findingsResult, totalsResult, llmLogData] = await Promise.all([
     db.query<AgentRun>(
       `
       SELECT id, started_at, finished_at, status, sources_checked, posts_found,
@@ -115,15 +175,6 @@ export async function getDashboardData(): Promise<DashboardData> {
       LIMIT 50
       `,
     ),
-    db.query<LlmLog>(
-      `
-      SELECT id, run_id, title, url, provider, model, status, response_json,
-             parsed_json, error_message, created_at
-      FROM llm_logs
-      ORDER BY created_at DESC
-      LIMIT 50
-      `,
-    ),
     db.query<{
       total_runs: string;
       successful_runs: string;
@@ -141,17 +192,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       FROM agent_runs
       `,
     ),
-    db.query<{
-      llm_successes: string;
-      llm_failures: string;
-    }>(
-      `
-      SELECT
-        COUNT(*) FILTER (WHERE status = 'success')::text AS llm_successes,
-        COUNT(*) FILTER (WHERE status != 'success')::text AS llm_failures
-      FROM llm_logs
-      `,
-    ),
+    getLlmLogData(db),
   ]);
 
   const totals = totalsResult.rows[0] ?? {
@@ -161,24 +202,21 @@ export async function getDashboardData(): Promise<DashboardData> {
     relevant_findings: "0",
     notifications_sent: "0",
   };
-  const llmTotals = llmTotalsResult.rows[0] ?? {
-    llm_successes: "0",
-    llm_failures: "0",
-  };
 
   return {
     runs: runsResult.rows,
     sourceLogs: sourceLogsResult.rows,
     findings: findingsResult.rows,
-    llmLogs: llmLogsResult.rows,
+    llmLogs: llmLogData.logs,
+    llmLogsAvailable: llmLogData.available,
     totals: {
       totalRuns: Number(totals.total_runs),
       successfulRuns: Number(totals.successful_runs),
       failedRuns: Number(totals.failed_runs),
       relevantFindings: Number(totals.relevant_findings),
       notificationsSent: Number(totals.notifications_sent),
-      llmSuccesses: Number(llmTotals.llm_successes),
-      llmFailures: Number(llmTotals.llm_failures),
+      llmSuccesses: llmLogData.successes,
+      llmFailures: llmLogData.failures,
     },
   };
 }

@@ -69,9 +69,9 @@ function TabLink({ tab, activeTab, icon: Icon, children }: { tab: DashboardTab; 
   );
 }
 
-function StatCard({ label, value, icon: Icon }: { label: string; value: number | string; icon: LucideIcon }) {
+function StatCard({ label, value, icon: Icon, className = "" }: { label: string; value: number | string; icon: LucideIcon; className?: string }) {
   return (
-    <div className="rounded-md border border-line bg-white p-4 shadow-panel">
+    <div className={`rounded-md border border-line bg-white p-4 shadow-panel ${className}`}>
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm font-medium text-muted">{label}</span>
         <Icon className="h-4 w-4 text-accent" aria-hidden="true" />
@@ -265,25 +265,29 @@ async function Dashboard({ activeTab }: { activeTab: DashboardTab }) {
       </header>
 
       <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:px-8">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
           <StatCard label="Total runs" value={data.totals.totalRuns} icon={Server} />
           <StatCard label="Successful" value={data.totals.successfulRuns} icon={CheckCircle2} />
           <StatCard label="Failed" value={data.totals.failedRuns} icon={XCircle} />
           {activeTab === "gemini" ? (
             <>
               <StatCard label="Gemini success" value={data.totals.llmSuccesses} icon={CheckCircle2} />
-              <StatCard label="Gemini failed" value={data.totals.llmFailures} icon={XCircle} />
+              <StatCard label="Gemini failed" value={data.totals.llmFailures} icon={XCircle} className="col-span-2 lg:col-span-1" />
             </>
           ) : (
             <>
               <StatCard label="Relevant posts" value={data.totals.relevantFindings} icon={Search} />
-              <StatCard label="Notifications" value={data.totals.notificationsSent} icon={Bell} />
+              <StatCard label="Notifications" value={data.totals.notificationsSent} icon={Bell} className="col-span-2 lg:col-span-1" />
             </>
           )}
         </div>
 
         {activeTab === "gemini" ? (
-          data.llmLogs.length ? (
+          !data.llmLogsAvailable ? (
+            <section className="rounded-md border border-line bg-white shadow-panel">
+              <EmptyState message="Gemini response logs are not available yet. Run the updated scanner once so it can create the llm_logs table in Supabase." />
+            </section>
+          ) : data.llmLogs.length ? (
             <section className="grid gap-3">
               {data.llmLogs.map((log) => <LlmLogCard key={log.id} log={log} />)}
             </section>
