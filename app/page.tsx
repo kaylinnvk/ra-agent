@@ -1,9 +1,13 @@
 import { AlertTriangle, Bell, Bot, CheckCircle2, LayoutDashboard, RefreshCw, Search, Server, XCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { Session } from "next-auth";
+import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
+import { auth, signOut } from "@/auth";
 import { AutoRefreshDashboard } from "@/components/AutoRefreshDashboard";
 import { LlmLogList } from "@/components/LlmLogList";
 import { LatestFindingsSection, RecentRunsSection, SourceChecksSection } from "@/components/OverviewPaginatedSections";
+import { ProfileMenu } from "@/components/ProfileMenu";
 import { getDashboardData } from "@/lib/db";
 import { Footer } from "@/components/Footer";
 import { refreshDashboardData } from "@/lib/actions";
@@ -129,10 +133,11 @@ function EmptyState({ message }: { message: string }) {
   return <div className="px-4 py-8 text-sm text-muted">{message}</div>;
 }
 
-async function Dashboard({ activeTab }: { activeTab: DashboardTab }) {
+async function Dashboard({ activeTab, session }: { activeTab: DashboardTab; session: Session }) {
   const data = await getDashboardData();
   const latestRun = data.runs[0];
   const returnTo = activeTab === "gemini" ? "/?tab=gemini" : "/";
+  const user = session.user;
 
   return (
     <>
@@ -145,7 +150,7 @@ async function Dashboard({ activeTab }: { activeTab: DashboardTab }) {
                 <h1 className="text-3xl font-semibold tracking-normal text-ink">ra-agent</h1>
                 <p className="mt-1 text-sm text-muted">Scanner runs, source checks, findings, and notification counts from Supabase.</p>
               </div>
-              <div className="flex items-center gap-2 md:justify-end">
+              <div className="flex flex-wrap items-center gap-2 md:justify-end">
                 <div className="min-w-0 rounded-md bg-panel px-3 py-2 text-sm text-muted ring-1 ring-line">
                   Latest run: <span className="font-medium text-ink">{latestRun ? formatDate(latestRun.started_at) : "No runs yet"}</span>
                 </div>
@@ -159,6 +164,15 @@ async function Dashboard({ activeTab }: { activeTab: DashboardTab }) {
                     <span className="hidden min-[390px]:inline">Refresh</span>
                   </button>
                 </form>
+                <ProfileMenu
+                  email={user?.email}
+                  image={user?.image}
+                  name={user?.name}
+                  signOutAction={async () => {
+                    "use server";
+                    await signOut({ redirectTo: "/login" });
+                  }}
+                />
               </div>
             </div>
             <nav className="flex rounded-md bg-panel p-1 ring-1 ring-line sm:w-fit" aria-label="Dashboard menu">
@@ -216,10 +230,15 @@ async function Dashboard({ activeTab }: { activeTab: DashboardTab }) {
 }
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const session = await auth();
+  if (!session?.user) {
+    redirect("/login");
+  }
+
   try {
     const params = await searchParams;
     const activeTab: DashboardTab = params.tab === "gemini" ? "gemini" : "overview";
-    return await Dashboard({ activeTab });
+    return await Dashboard({ activeTab, session });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown dashboard error.";
 
