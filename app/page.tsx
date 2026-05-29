@@ -8,6 +8,8 @@ import { AutoRefreshDashboard } from "@/components/AutoRefreshDashboard";
 import { LlmLogList } from "@/components/LlmLogList";
 import { LatestFindingsSection, RecentRunsSection, SourceChecksSection } from "@/components/OverviewPaginatedSections";
 import { ProfileMenu } from "@/components/ProfileMenu";
+import { RefreshToast } from "@/components/RefreshToast";
+import { getDevSession, isDevAuthBypassEnabled } from "@/lib/auth-dev";
 import { getDashboardData } from "@/lib/db";
 import { Footer } from "@/components/Footer";
 import { refreshDashboardData } from "@/lib/actions";
@@ -142,16 +144,54 @@ async function Dashboard({ activeTab, session }: { activeTab: DashboardTab; sess
   return (
     <>
       <AutoRefreshDashboard />
+      <RefreshToast />
       <main className="min-h-screen">
         <header className="border-b border-line bg-white">
           <div className="mx-auto flex w-full max-w-7xl min-w-0 flex-col gap-3 px-4 py-5 sm:px-6 lg:px-8">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div className="rounded-md border border-line bg-white p-4 shadow-panel md:hidden">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h1 className="text-3xl font-semibold tracking-normal text-ink">ra-agent</h1>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <form action={refreshDashboardData}>
+                    <input type="hidden" name="returnTo" value={returnTo} />
+                    <button
+                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-line bg-white text-ink transition hover:border-accent hover:text-accent"
+                      type="submit"
+                      title="Refresh"
+                    >
+                      <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                      <span className="sr-only">Refresh</span>
+                    </button>
+                  </form>
+                  <ProfileMenu
+                    compact
+                    email={user?.email}
+                    image={user?.image}
+                    name={user?.name}
+                    signOutAction={async () => {
+                      "use server";
+                      await signOut({ redirectTo: "/login" });
+                    }}
+                  />
+                </div>
+              </div>
+              <p className="mt-4 text-base leading-7 text-muted">Scanner runs, source checks, findings, and notification counts from Supabase.</p>
+              <div className="mt-5 border-t border-line pt-4 text-base text-ink">
+                <span className="mr-2 inline-block h-3 w-3 rounded-full bg-accent align-middle" aria-hidden="true" />
+                <span className="text-muted">Last run:</span>{" "}
+                <span className="font-medium">{latestRun ? formatDate(latestRun.started_at) : "No runs yet"}</span>
+              </div>
+            </div>
+
+            <div className="hidden flex-col gap-4 md:flex md:flex-row md:items-start md:justify-between">
               <div>
                 <h1 className="text-3xl font-semibold tracking-normal text-ink">ra-agent</h1>
                 <p className="mt-1 text-sm text-muted">Scanner runs, source checks, findings, and notification counts from Supabase.</p>
               </div>
-              <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                <div className="min-w-0 rounded-md bg-panel px-3 py-2 text-sm text-muted ring-1 ring-line">
+              <div className="grid grid-cols-[1fr_auto] gap-2 md:flex md:flex-wrap md:items-center md:justify-end">
+                <div className="col-span-2 min-w-0 rounded-md bg-panel px-3 py-2 text-sm text-muted ring-1 ring-line md:col-span-1">
                   Latest run: <span className="font-medium text-ink">{latestRun ? formatDate(latestRun.started_at) : "No runs yet"}</span>
                 </div>
                 <form action={refreshDashboardData}>
@@ -230,7 +270,7 @@ async function Dashboard({ activeTab, session }: { activeTab: DashboardTab; sess
 }
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
-  const session = await auth();
+  const session = isDevAuthBypassEnabled() ? getDevSession() : await auth();
   if (!session?.user) {
     redirect("/login");
   }

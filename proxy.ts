@@ -1,6 +1,11 @@
 import { auth } from "@/auth";
+import { isDevAuthBypassEnabled } from "@/lib/auth-dev";
 
 export const proxy = auth((req) => {
+  if (isDevAuthBypassEnabled()) {
+    return;
+  }
+
   const { pathname, search } = req.nextUrl;
 
   if (!req.auth && pathname !== "/login") {

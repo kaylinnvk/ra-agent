@@ -7,10 +7,11 @@ type ProfileMenuProps = {
   image?: string | null;
   name?: string | null;
   email?: string | null;
+  compact?: boolean;
   signOutAction: () => Promise<void>;
 };
 
-export function ProfileMenu({ image, name, email, signOutAction }: ProfileMenuProps) {
+export function ProfileMenu({ image, name, email, compact = false, signOutAction }: ProfileMenuProps) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const userLabel = name || email || "GitHub user";
@@ -45,19 +46,27 @@ export function ProfileMenu({ image, name, email, signOutAction }: ProfileMenuPr
       <button
         aria-expanded={open}
         aria-haspopup="menu"
-        className="inline-flex h-10 shrink-0 items-center gap-2 rounded-md border border-line bg-white px-2 text-sm font-semibold text-ink transition hover:border-accent hover:text-accent"
+        className={`inline-flex shrink-0 items-center justify-center rounded-md border border-line bg-white text-sm font-semibold text-ink transition hover:border-accent hover:text-accent ${
+          compact ? "h-10 w-10 p-0" : "h-10 gap-2 px-2"
+        }`}
         onClick={() => setOpen((value) => !value)}
         title="Account menu"
         type="button"
       >
-        {image ? (
-          <img className="h-6 w-6 shrink-0 rounded-full" src={image} alt="" />
+        {compact ? (
+          <Github className="h-4 w-4" aria-hidden="true" />
         ) : (
-          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-teal-50 text-accent">
-            <Github className="h-3.5 w-3.5" aria-hidden="true" />
-          </div>
+          <>
+            {image ? (
+              <img className="h-6 w-6 shrink-0 rounded-full" src={image} alt="" />
+            ) : (
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-teal-50 text-accent">
+                <Github className="h-3.5 w-3.5" aria-hidden="true" />
+              </div>
+            )}
+            <ChevronDown className="h-4 w-4 text-muted" aria-hidden="true" />
+          </>
         )}
-        <ChevronDown className="h-4 w-4 text-muted" aria-hidden="true" />
       </button>
 
       {open ? (
