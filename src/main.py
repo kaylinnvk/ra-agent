@@ -6,16 +6,19 @@ from src.db import (
     init_db,
     test_connection,
     start_agent_run,
+    mark_stale_running_runs,
     finish_agent_run,
     log_source_check,
-    already_seen,
     save_seen_post,
     save_finding,
     mark_notified,
     compute_content_hash,
+    db_backend,
+    normalize_url,
+    seen_post_diagnostics,
 )
 from src.scanner import scan_basic_links
-from src.classifier import classify_text
+from src.classifier import classify_text, reset_llm_runtime_state
 from src.notifier import notify, format_message, send_gmail
 
 def process_items(
@@ -33,12 +36,48 @@ def process_items(
 
     for item in items:
         content_hash = compute_content_hash(item.title, item.snippet)
+        normalized_url = normalize_url(item.url)
+        diagnostics = (
+            seen_post_diagnostics(item.url, content_hash)
+            if persist
+            else {
+                "already_seen": False,
+                "already_seen_by_url": False,
+                "already_seen_by_hash": False,
+            }
+        )
 
-        if persist and already_seen(item.url, content_hash):
+        print(
+            "[dedup-debug] "
+            f"title={item.title!r} "
+            f"normalized_url={normalized_url} "
+            f"content_hash={content_hash} "
+            f"already_seen_by_url={diagnostics['already_seen_by_url']} "
+            f"already_seen_by_hash={diagnostics['already_seen_by_hash']}"
+        )
+
+        if persist and diagnostics["already_seen"]:
+            print(
+                "[dedup-debug] "
+                f"title={item.title!r} inserted_into_seen_posts=False reason=already_seen"
+            )
             skipped_seen_count += 1
             continue
 
         new_posts_count += 1
+        inserted_into_seen_posts = False
+        if persist:
+            inserted_into_seen_posts = save_seen_post(
+                source_name=source,
+                title=item.title,
+                url=item.url,
+                content_hash=content_hash,
+                notified=False,
+            )
+        print(
+            "[dedup-debug] "
+            f"title={item.title!r} inserted_into_seen_posts={inserted_into_seen_posts}"
+        )
 
         result = classify_text(
             title=item.title,
@@ -63,15 +102,6 @@ def process_items(
                 )
             filtered_non_relevant_count += 1
             continue
-
-        if persist:
-            save_seen_post(
-                source_name=source,
-                title=item.title,
-                url=item.url,
-                content_hash=content_hash,
-                notified=False,
-            )
 
         message = format_message(
             title=item.title,
@@ -124,14 +154,29 @@ def process_items(
 
 
 def run_scan(send_notifications: bool = True, persist: bool = True) -> None:
+    reset_llm_runtime_state()
+
     if not settings.ra_website_url:
+        print("[scanner-debug] configured_sources_count: 0")
+        print("[scanner-debug] RA_WEBSITE_URL is empty")
         raise ValueError(
             "No sources configured. Set RA_WEBSITE_URL. Outlook/Microsoft Graph scanning is skipped for now."
         )
 
     init_db()
+    print(f"[scanner-debug] db_backend_effective: {db_backend()}")
+    print(f"[scanner-debug] DB_BACKEND_setting: {settings.db_backend}")
+    print(f"[scanner-debug] DATABASE_URL_configured: {bool(settings.database_url)}")
 
-    run_id = start_agent_run() if persist else None
+    configured_sources = [settings.ra_website_url] if settings.ra_website_url else []
+    print(f"[scanner-debug] configured_sources_count: {len(configured_sources)}")
+    for source_url in configured_sources:
+        print(f"[scanner-debug] configured_source_url: {source_url}")
+
+    if persist:
+        mark_stale_running_runs(sources_checked=len(configured_sources))
+
+    run_id = start_agent_run(sources_checked=len(configured_sources)) if persist else None
     sources_checked = 0
     posts_found = 0
     new_posts = 0
@@ -141,12 +186,12 @@ def run_scan(send_notifications: bool = True, persist: bool = True) -> None:
     notifications_sent = 0
     source_errors: list[str] = []
 
-    if settings.ra_website_url:
-        source_name = settings.ra_website_url
+    for source_url in configured_sources:
+        source_name = source_url
         sources_checked += 1
         try:
-            print(f"Scanning website: {settings.ra_website_url}")
-            items = scan_basic_links(settings.ra_website_url)
+            print(f"Scanning website: {source_url}")
+            items = scan_basic_links(source_url)
             posts_found += len(items)
             print(f"Found {len(items)} links/items on page.")
             (
@@ -170,7 +215,7 @@ def run_scan(send_notifications: bool = True, persist: bool = True) -> None:
                 log_source_check(
                     run_id=run_id,
                     source_name=source_name,
-                    source_url=settings.ra_website_url,
+                    source_url=source_url,
                     status="success",
                     items_found=len(items),
                 )
@@ -182,7 +227,7 @@ def run_scan(send_notifications: bool = True, persist: bool = True) -> None:
                 log_source_check(
                     run_id=run_id,
                     source_name=source_name,
-                    source_url=settings.ra_website_url,
+                    source_url=source_url,
                     status="failed",
                     error_message=str(exc),
                 )

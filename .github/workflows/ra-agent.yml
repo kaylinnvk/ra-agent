@@ -52,6 +52,8 @@ jobs:
       - name: Print scanner debug context
         run: |
           echo "RA_WEBSITE_URL=$RA_WEBSITE_URL"
+          echo "DB_BACKEND=$DB_BACKEND"
+          if [ -n "$DATABASE_URL" ]; then echo "DATABASE_URL configured=true"; else echo "DATABASE_URL configured=false"; fi
           echo "USE_SYSTEM_PROXY=$USE_SYSTEM_PROXY"
           echo "USE_LLM_CLASSIFIER=$USE_LLM_CLASSIFIER"
           echo "Fetch methods enabled: requests"

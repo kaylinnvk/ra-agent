@@ -295,6 +295,7 @@ def _extract_api_posts(page_url: str, max_pages: int = 3) -> list[WebItem]:
                             tags.append(str(tag["name"]))
                         elif isinstance(tag, str):
                             tags.append(tag)
+                tags = sorted(_clean_text(tag) for tag in tags if _clean_text(tag))
 
                 researcher_name = _clean_text(str(post.get("researcher_name", "") or ""))
                 school = _clean_text(str(post.get("school", "") or ""))

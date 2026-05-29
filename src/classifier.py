@@ -6,6 +6,9 @@ import requests
 
 from src.config import settings
 
+DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+_LLM_DISABLED_FOR_RUN = False
+
 @dataclass
 class ClassificationResult:
     score: int
@@ -34,6 +37,17 @@ def _post(url: str, **kwargs) -> requests.Response:
     return session.post(url, **kwargs)
 
 
+def reset_llm_runtime_state() -> None:
+    global _LLM_DISABLED_FOR_RUN
+    _LLM_DISABLED_FOR_RUN = False
+
+
+def _disable_llm_for_run(reason: str) -> None:
+    global _LLM_DISABLED_FOR_RUN
+    _LLM_DISABLED_FOR_RUN = True
+    print(f"LLM classification disabled for the rest of this run: {reason}")
+
+
 def _log_llm_attempt(
     *,
     run_id: int | None,
@@ -52,7 +66,7 @@ def _log_llm_attempt(
             title=title,
             url=url,
             provider="gemini",
-            model=settings.gemini_model,
+            model=settings.gemini_model or "gemini-2.0-flash",
             status=status,
             response_json=response_json,
             parsed_json=parsed_json,
@@ -74,6 +88,11 @@ def _error_details(exc: Exception) -> str:
         "response_body": getattr(response, "text", ""),
     }
     return json.dumps(details, ensure_ascii=False)
+
+
+def _is_rate_limited(exc: Exception) -> bool:
+    response = getattr(exc, "response", None)
+    return getattr(response, "status_code", None) == 429
 
 
 KEYWORDS = {
@@ -173,6 +192,20 @@ def classify_text(
     keyword_result = classify_with_keywords(title=title, snippet=snippet, min_score=min_score)
 
     if settings.use_llm_classifier and settings.gemini_api_key:
+        if not keyword_result.is_relevant:
+            print(
+                "LLM classification skipped; keyword prefilter did not mark item relevant: "
+                f"{title}"
+            )
+            return keyword_result
+
+        if _LLM_DISABLED_FOR_RUN:
+            print(
+                "LLM classification skipped; Gemini is disabled for this run after a prior rate-limit/error: "
+                f"{title}"
+            )
+            return keyword_result
+
         try:
             result = classify_with_llm(
                 title=title,
@@ -200,6 +233,8 @@ def classify_text(
                 error_message=_error_details(exc),
             )
             print(f"LLM classification failed; using keyword result: {exc}")
+            if _is_rate_limited(exc):
+                _disable_llm_for_run("Gemini returned HTTP 429 rate limit/quota error.")
 
     return keyword_result
 
@@ -251,8 +286,11 @@ def classify_with_llm(
         f"Snippet: {snippet[:2500]}"
     )
 
+    gemini_base_url = (settings.gemini_base_url or DEFAULT_GEMINI_BASE_URL).rstrip("/")
+    gemini_model = settings.gemini_model or "gemini-2.0-flash"
+
     response = _post(
-        f"{settings.gemini_base_url.rstrip('/')}/models/{settings.gemini_model}:generateContent",
+        f"{gemini_base_url}/models/{gemini_model}:generateContent",
         headers={
             "Content-Type": "application/json",
             "x-goog-api-key": settings.gemini_api_key,

@@ -234,6 +234,7 @@ class LLMClassifierTests(unittest.TestCase):
         self.assertTrue(result.raw_llm_response)
 
     def test_falls_back_to_keyword_classifier_when_llm_request_fails(self):
+        classifier.reset_llm_runtime_state()
         title = "Research Intern Opening - Reinforcement Learning for AI Systems"
         snippet = (
             "Join a research group building reinforcement learning methods for AI systems. | "
@@ -257,6 +258,105 @@ class LLMClassifierTests(unittest.TestCase):
         self.assertTrue(result.is_relevant)
         self.assertIn("research intern", result.matched_keywords)
         self.assertIn("reinforcement learning", result.matched_keywords)
+
+    def test_skips_llm_when_keyword_prefilter_is_not_relevant(self):
+        classifier.reset_llm_runtime_state()
+        title = "Campus dining update"
+        snippet = "New opening hours for the student cafeteria."
+
+        with (
+            patch.object(classifier, "settings", llm_settings()),
+            patch.object(classifier, "_post") as post,
+            patch("builtins.print"),
+        ):
+            result = classifier.classify_text(title=title, snippet=snippet, min_score=2)
+
+        post.assert_not_called()
+        self.assertEqual(result.source, "keyword")
+        self.assertFalse(result.is_relevant)
+
+    def test_rate_limit_disables_llm_for_rest_of_run(self):
+        classifier.reset_llm_runtime_state()
+        title = "Research Intern Opening - Reinforcement Learning for AI Systems"
+        snippet = (
+            "Join a research group building reinforcement learning methods for AI systems. | "
+            "Requirements: Python and ML. | Tags: research internship, RL"
+        )
+        response = SimpleNamespace(status_code=429, text='{"error": "quota"}')
+        rate_limit_error = classifier.requests.HTTPError("429 Too Many Requests")
+        rate_limit_error.response = response
+
+        with (
+            patch.object(classifier, "settings", llm_settings()),
+            patch.object(classifier, "_post", side_effect=rate_limit_error) as post,
+            patch.object(classifier, "_log_llm_attempt"),
+            patch("builtins.print"),
+        ):
+            first = classifier.classify_text(title=title, snippet=snippet, min_score=2)
+            second = classifier.classify_text(title=title, snippet=snippet, min_score=2)
+
+        self.assertEqual(post.call_count, 1)
+        self.assertEqual(first.source, "keyword")
+        self.assertEqual(second.source, "keyword")
+        self.assertTrue(first.is_relevant)
+        self.assertTrue(second.is_relevant)
+        classifier.reset_llm_runtime_state()
+
+    def test_llm_request_uses_default_base_url_when_setting_is_blank(self):
+        classifier.reset_llm_runtime_state()
+        title = "Research Assistant - LLM Agents"
+        snippet = "Work on LLM agents. | Tags: RA, LLM"
+        keyword_result = classifier.classify_with_keywords(title=title, snippet=snippet)
+        test_settings = SimpleNamespace(
+            use_system_proxy=False,
+            gemini_api_key="api-key",
+            gemini_base_url="",
+            gemini_model="gemini-2.5-flash-lite",
+        )
+
+        mock_response = SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {
+                                    "text": json.dumps(
+                                        {
+                                            "is_ra_opening": True,
+                                            "professor_group": "AI Lab",
+                                            "topic_area": "LLM agents",
+                                            "deadline": "",
+                                            "fit_score": 8,
+                                            "why_relevant": "RA opening about LLM agents.",
+                                            "matched_keywords": ["llm", "ai agents"],
+                                        }
+                                    )
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+        )
+
+        with (
+            patch.object(classifier, "settings", test_settings),
+            patch.object(classifier, "_post", return_value=mock_response) as post,
+        ):
+            result = classifier.classify_with_llm(
+                title=title,
+                snippet=snippet,
+                min_score=2,
+                keyword_result=keyword_result,
+            )
+
+        self.assertEqual(result.source, "llm")
+        self.assertEqual(
+            post.call_args.args[0],
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+        )
 
 
 if __name__ == "__main__":

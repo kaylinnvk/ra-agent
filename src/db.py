@@ -10,13 +10,37 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from src.config import settings
 
 LEGACY_TABLE_NAME = "opportunities"
+DYNAMIC_HASH_LABELS = {
+    "status",
+    "view_count",
+    "views",
+    "applicant_count",
+    "accepted_count",
+    "has_applied",
+    "posted_date",
+    "last_seen_at",
+    "checked_at",
+}
 
 
 def compute_content_hash(title: str, snippet: str = "") -> str:
     normalized_title = " ".join((title or "").split()).strip().lower()
-    normalized_snippet = " ".join((snippet or "").split()).strip().lower()
+    normalized_snippet = _stable_snippet_for_hash(snippet)
     payload = f"{normalized_title}\n{normalized_snippet}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _stable_snippet_for_hash(snippet: str = "") -> str:
+    stable_parts: list[str] = []
+    for part in (snippet or "").split("|"):
+        clean = " ".join(part.split()).strip()
+        if not clean:
+            continue
+        label = clean.split(":", 1)[0].strip().lower()
+        if label in DYNAMIC_HASH_LABELS:
+            continue
+        stable_parts.append(clean.lower())
+    return " | ".join(stable_parts)
 
 
 def normalize_url(url: str) -> str:
@@ -56,8 +80,12 @@ def _connect() -> Iterator[Any]:
 
     path = _sqlite_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(path) as conn:
-        yield conn
+    conn = sqlite3.connect(path)
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def _placeholder() -> str:
@@ -147,6 +175,13 @@ def _create_sqlite_schema(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_seen_posts_url_hash ON seen_posts(normalized_url, content_hash)"
+    )
+    _dedupe_seen_posts_by_normalized_url(conn)
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_seen_posts_normalized_url_unique ON seen_posts(normalized_url)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_seen_posts_content_hash ON seen_posts(content_hash)"
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_findings_run_id ON findings(run_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_source_logs_run_id ON source_logs(run_id)")
@@ -238,6 +273,13 @@ def _create_postgres_schema(conn: Any) -> None:
         cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_seen_posts_url_hash ON seen_posts(normalized_url, content_hash)"
         )
+        _dedupe_seen_posts_by_normalized_url(conn)
+        cur.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_seen_posts_normalized_url_unique ON seen_posts(normalized_url)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_seen_posts_content_hash ON seen_posts(content_hash)"
+        )
         cur.execute("CREATE INDEX IF NOT EXISTS idx_findings_run_id ON findings(run_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_source_logs_run_id ON source_logs(run_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_llm_logs_run_id ON llm_logs(run_id)")
@@ -255,6 +297,40 @@ def _sqlite_table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
 def _sqlite_table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
     cur = conn.execute(f"PRAGMA table_info({table_name})")
     return {row[1] for row in cur.fetchall()}
+
+
+def _dedupe_seen_posts_by_normalized_url(conn: Any) -> None:
+    if db_backend() == "postgres":
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM seen_posts
+                WHERE id IN (
+                    SELECT id
+                    FROM (
+                        SELECT id,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY normalized_url
+                                   ORDER BY first_seen_at ASC, id ASC
+                               ) AS row_number
+                        FROM seen_posts
+                    ) duplicates
+                    WHERE row_number > 1
+                )
+                """
+            )
+        return
+
+    conn.execute(
+        """
+        DELETE FROM seen_posts
+        WHERE id NOT IN (
+            SELECT MIN(id)
+            FROM seen_posts
+            GROUP BY normalized_url
+        )
+        """
+    )
 
 
 def _migrate_legacy_sqlite(conn: sqlite3.Connection) -> None:
@@ -306,15 +382,44 @@ def test_connection() -> str:
     return f"{db_backend()} database connection OK: {row[0]}"
 
 
-def start_agent_run() -> int:
+def start_agent_run(sources_checked: int = 0) -> int:
     with _connect() as conn:
         if db_backend() == "postgres":
             with conn.cursor() as cur:
-                cur.execute("INSERT INTO agent_runs (status) VALUES (%s) RETURNING id", ("running",))
+                cur.execute(
+                    "INSERT INTO agent_runs (status, sources_checked) VALUES (%s, %s) RETURNING id",
+                    ("running", sources_checked),
+                )
                 return int(cur.fetchone()[0])
 
-        cur = conn.execute("INSERT INTO agent_runs (status) VALUES (?)", ("running",))
+        cur = conn.execute(
+            "INSERT INTO agent_runs (status, sources_checked) VALUES (?, ?)",
+            ("running", sources_checked),
+        )
         return int(cur.lastrowid)
+
+
+def mark_stale_running_runs(sources_checked: int = 0) -> None:
+    ph = _placeholder()
+    with _connect() as conn:
+        _execute(
+            conn,
+            f"""
+            UPDATE agent_runs
+            SET finished_at = {ph},
+                status = {ph},
+                sources_checked = CASE WHEN sources_checked = 0 THEN {ph} ELSE sources_checked END,
+                error_message = COALESCE(error_message, {ph})
+            WHERE status = {ph}
+            """,
+            (
+                _now_iso(),
+                "failed",
+                sources_checked,
+                "Run did not finish before the next scanner start.",
+                "running",
+            ),
+        )
 
 
 def finish_agent_run(
@@ -386,27 +491,49 @@ def log_source_check(
         )
 
 
-def already_seen(url: str, content_hash: str) -> bool:
+def seen_post_diagnostics(url: str, content_hash: str) -> dict[str, Any]:
     normalized_url = normalize_url(url)
     ph = _placeholder()
     with _connect() as conn:
-        row = _fetchone(
+        url_row = _fetchone(
             conn,
-            f"SELECT 1 FROM seen_posts WHERE normalized_url = {ph} AND content_hash = {ph}",
-            (normalized_url, content_hash),
+            f"SELECT 1 FROM seen_posts WHERE normalized_url = {ph}",
+            (normalized_url,),
         )
-        if row is None:
-            return False
+        hash_row = _fetchone(
+            conn,
+            f"SELECT 1 FROM seen_posts WHERE content_hash = {ph}",
+            (content_hash,),
+        )
+        already_seen_by_url = url_row is not None
+        already_seen_by_hash = hash_row is not None
+        if not already_seen_by_url and not already_seen_by_hash:
+            return {
+                "normalized_url": normalized_url,
+                "already_seen_by_url": False,
+                "already_seen_by_hash": False,
+                "already_seen": False,
+            }
+
         _execute(
             conn,
             f"""
             UPDATE seen_posts
             SET last_seen_at = {ph}
-            WHERE normalized_url = {ph} AND content_hash = {ph}
+            WHERE normalized_url = {ph} OR content_hash = {ph}
             """,
             (_now_iso(), normalized_url, content_hash),
         )
-        return True
+        return {
+            "normalized_url": normalized_url,
+            "already_seen_by_url": already_seen_by_url,
+            "already_seen_by_hash": already_seen_by_hash,
+            "already_seen": True,
+        }
+
+
+def already_seen(url: str, content_hash: str) -> bool:
+    return bool(seen_post_diagnostics(url, content_hash)["already_seen"])
 
 
 def save_seen_post(
@@ -415,25 +542,30 @@ def save_seen_post(
     url: str,
     content_hash: str,
     notified: bool = False,
-) -> None:
+) -> bool:
     normalized_url = normalize_url(url)
     ph = _placeholder()
     with _connect() as conn:
         if db_backend() == "postgres":
-            _execute(
-                conn,
-                """
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
                 INSERT INTO seen_posts
                 (normalized_url, content_hash, title, source_name, first_seen_at, last_seen_at, notified)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (normalized_url, content_hash)
-                DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
+                ON CONFLICT (normalized_url)
+                DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at,
+                              content_hash = EXCLUDED.content_hash,
+                              title = EXCLUDED.title,
+                              source_name = EXCLUDED.source_name,
+                              notified = seen_posts.notified OR EXCLUDED.notified
+                RETURNING (xmax = 0) AS inserted
                 """,
-                (normalized_url, content_hash, title, source_name, _now_iso(), _now_iso(), notified),
-            )
-            return
+                    (normalized_url, content_hash, title, source_name, _now_iso(), _now_iso(), notified),
+                )
+                return bool(cur.fetchone()[0])
 
-        _execute(
+        cur = _execute(
             conn,
             f"""
             INSERT OR IGNORE INTO seen_posts
@@ -450,6 +582,22 @@ def save_seen_post(
                 int(notified),
             ),
         )
+        inserted = cur.rowcount > 0
+        if not inserted:
+            _execute(
+                conn,
+                f"""
+                UPDATE seen_posts
+                SET last_seen_at = {ph},
+                    content_hash = {ph},
+                    title = {ph},
+                    source_name = {ph},
+                    notified = notified OR {ph}
+                WHERE normalized_url = {ph}
+                """,
+                (_now_iso(), content_hash, title, source_name, int(notified), normalized_url),
+            )
+        return inserted
 
 
 def save_finding(
