@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="https://nextjs.org"><img src="https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=nextdotjs" alt="Next.js 16"></a>
+  <a href="https://www.python.org"><img src="https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11"></a>
   <a href="https://react.dev"><img src="https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React 19"></a>
   <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-Strict-blue?style=for-the-badge&logo=typescript" alt="TypeScript"></a>
   <a href="https://supabase.com"><img src="https://img.shields.io/badge/Supabase-Postgres-3FCF8E?style=for-the-badge&logo=supabase&logoColor=white" alt="Supabase Postgres"></a>
@@ -24,6 +25,9 @@ RA Agent scans RA/research opportunity posts, filters them for relevance, sends 
 <p align="center">
   <img src="public/demo/overview-2.png" alt="Recent runs and findings" width="48%">
   <img src="public/demo/gemini-logs.png" alt="Gemini logs view" width="48%">
+</p>
+<p align="center">
+  <img src="public/demo/gmail-notification.png" alt="RA alert notification" width="48%">
 </p>
 
 ## Features
