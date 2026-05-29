@@ -4,6 +4,8 @@ __pycache__/
 *.py[cod]
 data/*.sqlite
 data/*.sqlite-*
+*.db
+*.db-*
 node_modules/
 .next/
 .vercel/
@@ -13,3 +15,4 @@ yarn-debug.log*
 yarn-error.log*
 .next-dev.log
 tsconfig.tsbuildinfo
+tmp_bundle.js
