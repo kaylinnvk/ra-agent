@@ -109,7 +109,7 @@ function RunRow({ run }: { run: AgentRun }) {
       <td className="whitespace-nowrap px-4 py-3 text-right">{run.new_posts}</td>
       <td className="whitespace-nowrap px-4 py-3 text-right">{run.relevant_posts}</td>
       <td className="whitespace-nowrap px-4 py-3 text-right">{run.notifications_sent}</td>
-      <td className="max-w-[20rem] break-words px-4 py-3 text-sm text-rose-700 [overflow-wrap:anywhere]">{run.error_message || ""}</td>
+      <td className="max-w-[20rem] px-4 py-3 text-sm text-rose-700 [overflow-wrap:anywhere]">{run.error_message || ""}</td>
     </tr>
   );
 }
@@ -137,7 +137,7 @@ function CompactRunCard({ run }: { run: AgentRun }) {
           <div className="min-w-0 rounded-md bg-panel px-1.5 py-3"><div className="text-lg font-semibold text-ink min-[390px]:text-xl">{run.notifications_sent}</div><div className="text-[11px] font-medium text-muted min-[390px]:text-xs">Sent</div></div>
         </div>
       </div>
-      {run.error_message ? <p className="mt-3 break-words text-sm text-rose-700 [overflow-wrap:anywhere]">{run.error_message}</p> : null}
+      {run.error_message ? <p className="mt-3 text-sm text-rose-700 [overflow-wrap:anywhere]">{run.error_message}</p> : null}
     </article>
   );
 }
@@ -192,7 +192,7 @@ function SourceLogRow({ log }: { log: SourceLog }) {
         </a>
       </td>
       <td className="whitespace-nowrap px-4 py-3 text-right">{log.items_found}</td>
-      <td className="max-w-[24rem] break-words px-4 py-3 text-sm text-rose-700 [overflow-wrap:anywhere]">{log.error_message || ""}</td>
+      <td className="max-w-[24rem] px-4 py-3 text-sm text-rose-700 [overflow-wrap:anywhere]">{log.error_message || ""}</td>
     </tr>
   );
 }
@@ -205,11 +205,11 @@ function CompactSourceLogCard({ log }: { log: SourceLog }) {
         <span className="text-xs text-muted">{formatDate(log.checked_at)}</span>
       </div>
       <a className="mt-3 flex min-w-0 items-start gap-1 font-semibold text-ink hover:text-accent" href={log.source_url} target="_blank" rel="noreferrer">
-        <span className="min-w-0 break-words [overflow-wrap:anywhere]">{log.source_name}</span>
+        <span className="min-w-0 [overflow-wrap:anywhere]">{log.source_name}</span>
         <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       </a>
       <div className="mt-2 text-sm text-muted">Items found: <span className="font-semibold text-ink">{log.items_found}</span></div>
-      {log.error_message ? <p className="mt-2 break-words text-sm text-rose-700 [overflow-wrap:anywhere]">{log.error_message}</p> : null}
+      {log.error_message ? <p className="mt-2 text-sm text-rose-700 [overflow-wrap:anywhere]">{log.error_message}</p> : null}
     </article>
   );
 }
@@ -280,10 +280,10 @@ function CompactFindingCard({ finding }: { finding: Finding }) {
         <span className="text-xs text-muted">{formatDate(finding.created_at)}</span>
       </div>
       <a className="mt-3 flex min-w-0 items-start gap-1 font-semibold text-ink hover:text-accent" href={finding.url} target="_blank" rel="noreferrer">
-        <span className="min-w-0 break-words [overflow-wrap:anywhere]">{finding.title}</span>
+        <span className="min-w-0 [overflow-wrap:anywhere]">{finding.title}</span>
         <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       </a>
-      {finding.reason ? <p className="mt-2 break-words text-sm text-muted [overflow-wrap:anywhere]">{finding.reason}</p> : null}
+      {finding.reason ? <p className="mt-2 text-sm text-muted [overflow-wrap:anywhere]">{finding.reason}</p> : null}
     </article>
   );
 }

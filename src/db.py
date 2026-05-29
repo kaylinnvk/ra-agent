@@ -187,6 +187,7 @@ def _create_sqlite_schema(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_source_logs_run_id ON source_logs(run_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_logs_run_id ON llm_logs(run_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_logs_created_at ON llm_logs(created_at)")
+    _backfill_seen_posts_from_findings(conn)
 
 
 def _create_postgres_schema(conn: Any) -> None:
@@ -284,6 +285,7 @@ def _create_postgres_schema(conn: Any) -> None:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_source_logs_run_id ON source_logs(run_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_llm_logs_run_id ON llm_logs(run_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_llm_logs_created_at ON llm_logs(created_at)")
+        _backfill_seen_posts_from_findings(conn)
 
 
 def _sqlite_table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
@@ -331,6 +333,59 @@ def _dedupe_seen_posts_by_normalized_url(conn: Any) -> None:
         )
         """
     )
+
+
+def _backfill_seen_posts_from_findings(conn: Any) -> None:
+    ph = _placeholder()
+    rows = _execute(
+        conn,
+        """
+        SELECT title, url, source_name, content_hash, created_at, notified
+        FROM findings
+        ORDER BY created_at ASC, id ASC
+        """,
+    ).fetchall()
+
+    if db_backend() == "postgres":
+        with conn.cursor() as cur:
+            for title, url, source_name, content_hash, created_at, notified in rows:
+                cur.execute(
+                    """
+                    INSERT INTO seen_posts
+                    (normalized_url, content_hash, title, source_name, first_seen_at, last_seen_at, notified)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (normalized_url) DO NOTHING
+                    """,
+                    (
+                        normalize_url(url),
+                        content_hash,
+                        title,
+                        source_name,
+                        created_at or _now_iso(),
+                        created_at or _now_iso(),
+                        bool(notified),
+                    ),
+                )
+        return
+
+    for title, url, source_name, content_hash, created_at, notified in rows:
+        _execute(
+            conn,
+            f"""
+            INSERT OR IGNORE INTO seen_posts
+            (normalized_url, content_hash, title, source_name, first_seen_at, last_seen_at, notified)
+            VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+            """,
+            (
+                normalize_url(url),
+                content_hash,
+                title,
+                source_name,
+                created_at or _now_iso(),
+                created_at or _now_iso(),
+                int(bool(notified)),
+            ),
+        )
 
 
 def _migrate_legacy_sqlite(conn: sqlite3.Connection) -> None:

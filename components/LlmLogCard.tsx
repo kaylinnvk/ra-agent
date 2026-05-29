@@ -133,7 +133,7 @@ function FailureSummary({ errorMessage }: { errorMessage: string | null }) {
   return (
     <div className="mt-3 rounded-md border border-rose-100 bg-rose-50 p-3">
       <div className="text-xs font-semibold uppercase text-muted">Error summary</div>
-      <p className="mt-1 break-words text-sm text-ink [overflow-wrap:anywhere]">{textValue(message)}</p>
+      <p className="mt-1 text-sm text-ink [overflow-wrap:anywhere]">{textValue(message)}</p>
       {statusCode ? <p className="mt-2 text-xs font-semibold text-rose-700">HTTP {textValue(statusCode)}</p> : null}
     </div>
   );
@@ -182,7 +182,7 @@ export function LlmLogCard({ log }: { log: LlmLog }) {
       </button>
 
       {expanded ? (
-        <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md border border-white/70 bg-white/80 p-3 text-xs leading-5 text-ink [overflow-wrap:anywhere]">
+        <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-white/70 bg-white/80 p-3 text-xs leading-5 text-ink [overflow-wrap:anywhere]">
           {detailsText || "No details captured."}
         </pre>
       ) : null}

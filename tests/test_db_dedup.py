@@ -52,6 +52,34 @@ class DedupTests(unittest.TestCase):
 
         self.assertEqual(first_hash, second_hash)
 
+    def test_init_db_backfills_seen_posts_from_findings(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sqlite_path = Path(temp_dir) / "ra.sqlite"
+            with patch.object(db, "settings", sqlite_settings(sqlite_path)):
+                db.init_db()
+                content_hash = db.compute_content_hash("Existing finding", "Stable description")
+                db.save_finding(
+                    run_id=None,
+                    title="Existing finding",
+                    url="https://example.edu/post/old",
+                    source_name="source",
+                    content_hash=content_hash,
+                    is_relevant=True,
+                    relevance_score=3,
+                    reason="historical",
+                    notified=True,
+                )
+
+                db.init_db()
+                diagnostics = db.seen_post_diagnostics(
+                    "https://example.edu/post/old",
+                    content_hash,
+                )
+
+            self.assertTrue(diagnostics["already_seen"])
+            self.assertTrue(diagnostics["already_seen_by_url"])
+            self.assertTrue(diagnostics["already_seen_by_hash"])
+
 
 if __name__ == "__main__":
     unittest.main()
