@@ -3,8 +3,8 @@ name: RA Agent
 on:
   workflow_dispatch:
   schedule:
-    # Runs every hour, at minute 0, UTC
-    - cron: "0 * * * *"
+    # Runs every hour, at minute 26
+    - cron: "26 * * * *"
 
 jobs:
   scan:
