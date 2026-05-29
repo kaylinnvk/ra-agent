@@ -1,245 +1,146 @@
-# RA Opportunity Monitor Agent
+<p align="center">
+  <img src="public/img/ra-agent-logo.png" alt="RA Agent logo" width="160">
+</p>
 
-A small Python agent that scans an RA/research recruitment webpage, filters likely AI/ML-related RA openings, deduplicates posts by normalized URL plus content hash, and notifies you by Gmail.
+<p align="center">
+  <a href="https://nextjs.org"><img src="https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=nextdotjs" alt="Next.js 16"></a>
+  <a href="https://react.dev"><img src="https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React 19"></a>
+  <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-Strict-blue?style=for-the-badge&logo=typescript" alt="TypeScript"></a>
+  <a href="https://supabase.com"><img src="https://img.shields.io/badge/Supabase-Postgres-3FCF8E?style=for-the-badge&logo=supabase&logoColor=white" alt="Supabase Postgres"></a>
+  <a href="https://ai.google.dev/gemini-api"><img src="https://img.shields.io/badge/Gemini-LLM-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white" alt="Gemini"></a>
+  <a href="https://github.com/features/actions"><img src="https://img.shields.io/badge/GitHub%20Actions-Hourly-2088FF?style=for-the-badge&logo=githubactions&logoColor=white" alt="GitHub Actions"></a>
+  <a href="https://vercel.com"><img src="https://img.shields.io/badge/Vercel-Dashboard-black?style=for-the-badge&logo=vercel" alt="Vercel"></a>
+</p>
 
-Outlook/Microsoft Graph scanning is intentionally skipped for now.
+RA Agent scans RA/research opportunity posts, filters them for relevance, sends email alerts, and displays run logs in a small protected web dashboard.
+
+## Demo
+
+<p align="center">
+  <img src="public/demo/login.png" alt="GitHub OAuth login screen" width="48%">
+  <img src="public/demo/overview-1.png" alt="Dashboard overview" width="48%">
+</p>
+
+<p align="center">
+  <img src="public/demo/overview-2.png" alt="Recent runs and findings" width="48%">
+  <img src="public/demo/gemini-logs.png" alt="Gemini logs view" width="48%">
+</p>
 
 ## Features
 
-- Scan one RA recruitment website
-- Extract posts from links, card-style headings, JSON data, and simple dynamic API feeds
-- Keyword classifier with optional Gemini relevance filtering
-- Persistent deduplication with SQLite locally or Postgres/Supabase in production
-- Gmail SMTP notification for new relevant openings
-- Run/source/finding logs for deployed runs
+- Hourly RA website scanning through GitHub Actions
+- Deduplication so already-seen posts are ignored
+- Keyword relevance scoring with a minimum score threshold
+- Gemini classification for relevant candidates
+- Gmail notifications for new relevant RA posts
+- Supabase Postgres storage for runs, source checks, findings, and LLM logs
+- Vercel-hosted Next.js dashboard
+- GitHub OAuth login with Auth.js, including a dev-only auth bypass for local UI work
+
+## How It Works
+
+1. GitHub Actions runs the scanner every hour.
+2. The scanner extracts candidate posts from links, page cards, JSON data, and simple API feeds.
+3. Already-seen posts are skipped using normalized URL and content hash deduplication.
+4. New posts go through the local relevance filter. Posts with score lower than `MIN_SCORE` are saved as non-relevant and do not trigger notifications.
+5. Relevant candidates are sent to Gemini for deeper classification, including fit score, matched keywords, professor/group, topic area, deadline, and reasoning.
+6. New relevant posts trigger a Gmail notification.
+7. Results are saved to Supabase Postgres.
+8. The Vercel web app reads the same database and shows scanner runs, source checks, findings, and Gemini logs.
 
 ## Setup
 
+### 1. Install Python dependencies
+
 ```bash
 python -m venv .venv
-
-# Windows PowerShell
 .venv\Scripts\Activate.ps1
-
 pip install -r requirements.txt
 copy .env.example .env
 ```
 
-Edit `.env` for local development:
+### 2. Configure `.env`
+
+Minimum local scanner config:
 
 ```env
 RA_WEBSITE_URL=https://example.com/ra-recruitment-page
-CHECK_INTERVAL_MINUTES=360
 MIN_SCORE=2
-
 DB_BACKEND=sqlite
 SQLITE_PATH=data/ra_agent.sqlite
+USE_LLM_CLASSIFIER=true
+GEMINI_API_KEY=your_gemini_api_key
 ```
 
-Run once:
-
-```bash
-python -m src.main --once
-```
-
-Run continuously on your machine:
-
-```bash
-python -m src.main
-```
-
-## Database
-
-The agent uses SQLite unless `DB_BACKEND=postgres` and `DATABASE_URL` is set. GitHub Actions should use Postgres because files created during scheduled workflow runs are not persistent.
-
-Required database env vars:
-
-```env
-DB_BACKEND=sqlite
-SQLITE_PATH=data/ra_agent.sqlite
-DATABASE_URL=
-```
-
-For production:
+For production scanner runs, use Supabase Postgres:
 
 ```env
 DB_BACKEND=postgres
 DATABASE_URL=postgresql://...
 ```
 
-The agent creates these tables automatically:
+For Gmail alerts:
 
-- `seen_posts`
-- `agent_runs`
-- `source_logs`
-- `findings`
-- `llm_logs`
-
-## Supabase Postgres
-
-1. Create a Supabase project at `https://supabase.com`.
-2. Open Project Settings, then Database.
-3. Copy the connection string for the transaction/session pooler or direct database connection.
-4. Replace the password placeholder with your database password.
-5. Use that value as `DATABASE_URL` in GitHub Actions Secrets.
-
-Supabase URLs usually look like:
-
-```text
-postgresql://postgres.your-project:password@aws-...pooler.supabase.com:6543/postgres
-```
-
-## GitHub Actions Deployment
-
-The workflow lives at `.github/workflows/ra-agent.yml`. It runs every 45 minutes and can also be started manually.
-
-Add these GitHub repository secrets in Settings, Secrets and variables, Actions:
-
-```text
-DATABASE_URL
-RA_WEBSITE_URL
-MIN_SCORE
-USE_LLM_CLASSIFIER
-GEMINI_API_KEY
-GEMINI_MODEL
-GEMINI_BASE_URL
-GMAIL_HOST
-GMAIL_PORT
-GMAIL_USER
-GMAIL_APP_PASSWORD
-GMAIL_TO
-GMAIL_FROM
-```
-
-Recommended values:
-
-```text
-MIN_SCORE=2
-USE_LLM_CLASSIFIER=true
-GEMINI_MODEL=gemini-2.0-flash
-GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+```env
 GMAIL_HOST=smtp.gmail.com
 GMAIL_PORT=587
+GMAIL_USER=yourgmail@gmail.com
+GMAIL_APP_PASSWORD=your_app_password
+GMAIL_TO=yourgmail@gmail.com
 ```
 
-`GMAIL_FROM` is optional. If it is empty, the agent uses `GMAIL_USER`.
+### 3. Run the scanner
 
-To manually trigger the workflow, open GitHub Actions, choose `RA Agent`, then select `Run workflow`.
+```bash
+python -m src.main --once
+```
 
-## Web Dashboard
+Useful checks:
 
-The repo also includes a Next.js + Tailwind dashboard for scanner logs. It reads the same Supabase/Postgres database used by the GitHub Actions scanner and displays:
+```bash
+python -m src.main --check-db
+python -m src.main --dry-run
+python -m src.main --test-gmail
+```
 
-- recent `agent_runs`
-- recent `source_logs`
-- latest `findings`
-- Gemini API response logs from `llm_logs`
-- total runs, successful runs, failed runs, relevant posts, and notifications sent
-
-Run it locally:
+### 4. Run the dashboard
 
 ```bash
 npm install
 npm run dev
 ```
 
-Set `DATABASE_URL` in your local environment or `.env` to the Supabase Postgres connection string. The dashboard uses this variable only on the server.
-
-Deploy it on Vercel:
-
-1. Import this GitHub repository into Vercel.
-2. Set the Framework Preset to Next.js.
-3. Add `DATABASE_URL` in Vercel Project Settings, Environment Variables.
-4. Use the same Supabase Postgres connection string as the scanner workflow.
-5. Deploy from the connected GitHub branch.
-
-The app uses Node.js server rendering for the `/` dashboard route, so Vercel should use Node 20 or newer.
-
-The dashboard menu has two views:
-
-- `Overview`: scanner runs, source checks, findings, and summary metrics
-- `Gemini logs`: raw Gemini response/error cards; successful calls are green and failed calls are red
-
-## Gmail Notification
-
-This uses Gmail SMTP with STARTTLS. Create a Gmail App Password and use that here, not your normal Gmail password.
+Set these for the dashboard:
 
 ```env
-GMAIL_HOST=smtp.gmail.com
-GMAIL_PORT=587
-GMAIL_USER=yourgmail@gmail.com
-GMAIL_APP_PASSWORD=your_16_character_app_password
-GMAIL_TO=yourgmail@gmail.com
-GMAIL_FROM=yourgmail@gmail.com
+DATABASE_URL=postgresql://...
+AUTH_SECRET=your_auth_secret
+AUTH_URL=http://localhost:3000
+AUTH_TRUST_HOST=true
+AUTH_GITHUB_ID=your_github_oauth_client_id
+AUTH_GITHUB_SECRET=your_github_oauth_client_secret
 ```
 
-If Gmail is not configured, or if Gmail sending fails, notifications print to the console.
-
-## Optional Gemini Filtering
-
-The default classifier uses local keyword scoring. To have Gemini classify each item, extract professor/group name, topic area, deadline, fit score, and explain the match, add:
+For local UI work without GitHub OAuth:
 
 ```env
-USE_LLM_CLASSIFIER=true
-GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=gemini-2.0-flash
-GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+DISABLE_AUTH_IN_DEV=true
 ```
 
-If Gemini fails or is not configured, the agent falls back to the local keyword classifier.
+### 5. Deploy
 
-## Deployment Checks
+- Add scanner secrets to GitHub Actions: `DATABASE_URL`, `RA_WEBSITE_URL`, `MIN_SCORE`, `USE_LLM_CLASSIFIER`, `GEMINI_API_KEY`, Gmail settings.
+- Deploy the Next.js app to Vercel.
+- Add dashboard env vars in Vercel: `DATABASE_URL`, `AUTH_SECRET`, `AUTH_URL`, `AUTH_TRUST_HOST`, `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET`.
+- Set the GitHub OAuth callback URL to:
 
-Test the configured database:
-
-```bash
-python -m src.main --check-db
-```
-
-Send a Gmail smoke-test email:
-
-```bash
-python -m src.main --test-gmail
-```
-
-Run one scan without writing findings or sending notifications:
-
-```bash
-python -m src.main --dry-run
+```text
+https://your-domain.com/api/auth/callback/github
 ```
 
 ## Tests
 
-Compile the main modules:
-
-```bash
-python -m py_compile src/config.py src/notifier.py src/main.py
-```
-
-Run existing tests:
-
 ```bash
 python -m unittest
-```
-
-Live Gemini tests are opt-in because they call the API:
-
-```bash
-python -m tests.test_classifier_llm --live-llm --llm-results-file tests/llm_classifier_results.md -v
-```
-
-## Project Structure
-
-```text
-src/
-  main.py        # entry point, scheduler, run logging
-  scanner.py     # webpage fetching + parsing
-  classifier.py  # keyword and Gemini relevance classification
-  db.py          # SQLite/Postgres persistence and deduplication
-  notifier.py    # console/Gmail notifications
-  config.py      # env variables
-app/
-  page.tsx       # Next.js dashboard page
-lib/
-  db.ts          # Postgres queries for dashboard data
+npm run typecheck
 ```
