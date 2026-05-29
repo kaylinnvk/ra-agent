@@ -106,7 +106,7 @@ async function getLlmLogData(db: Pool) {
         SELECT id, run_id, title, url, provider, model, status, response_json,
                parsed_json, error_message, created_at
         FROM llm_logs
-        ORDER BY created_at DESC
+        ORDER BY created_at DESC, id DESC
         LIMIT 50
         `,
       ),
@@ -156,7 +156,7 @@ async function queryDashboardData(): Promise<DashboardData> {
       SELECT id, started_at, finished_at, status, sources_checked, posts_found,
              new_posts, relevant_posts, notifications_sent, error_message
       FROM agent_runs
-      ORDER BY started_at DESC
+      ORDER BY started_at DESC, id DESC
       LIMIT 25
       `,
     ),
@@ -164,7 +164,7 @@ async function queryDashboardData(): Promise<DashboardData> {
       `
       SELECT id, run_id, source_name, source_url, status, items_found, error_message, checked_at
       FROM source_logs
-      ORDER BY checked_at DESC
+      ORDER BY checked_at DESC, id DESC
       LIMIT 25
       `,
     ),
@@ -173,7 +173,7 @@ async function queryDashboardData(): Promise<DashboardData> {
       SELECT id, run_id, title, url, source_name, is_relevant, relevance_score,
              reason, notified, created_at
       FROM findings
-      ORDER BY created_at DESC
+      ORDER BY created_at DESC, id DESC
       LIMIT 50
       `,
     ),
