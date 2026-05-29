@@ -142,7 +142,7 @@ async function Dashboard({ activeTab }: { activeTab: DashboardTab }) {
           <div className="mx-auto flex w-full max-w-7xl min-w-0 flex-col gap-3 px-4 py-5 sm:px-6 lg:px-8">
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div>
-                <h1 className="text-2xl font-semibold tracking-normal text-ink">ra-agent</h1>
+                <h1 className="text-3xl font-semibold tracking-normal text-ink">ra-agent</h1>
                 <p className="mt-1 text-sm text-muted">Scanner runs, source checks, findings, and notification counts from Supabase.</p>
               </div>
               <div className="flex items-center gap-2 md:justify-end">

@@ -10,7 +10,7 @@ export function Footer() {
           </div>
           <div className="min-w-0">
             <h2 className="break-words text-sm font-semibold sm:text-lg">ra-agent</h2>
-            <p className="break-words text-sm font-medium text-white/65">Mini project by Kaylinn Venezia Kurniawan</p>
+            <p className="break-words text-sm font-medium text-white/65">mini project by kaylinnvk</p>
           </div>
         </div>
 
