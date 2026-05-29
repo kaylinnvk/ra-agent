@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { Pool } from "pg";
 
 export type AgentRun = {
@@ -69,6 +70,7 @@ export type DashboardData = {
 };
 
 let pool: Pool | null = null;
+export const DASHBOARD_DATA_CACHE_TAG = "dashboard-data";
 
 function getPool() {
   const connectionString = process.env.DATABASE_URL;
@@ -146,7 +148,7 @@ async function getLlmLogData(db: Pool) {
   }
 }
 
-export async function getDashboardData(): Promise<DashboardData> {
+async function queryDashboardData(): Promise<DashboardData> {
   const db = getPool();
   const [runsResult, sourceLogsResult, findingsResult, totalsResult, llmLogData] = await Promise.all([
     db.query<AgentRun>(
@@ -219,4 +221,13 @@ export async function getDashboardData(): Promise<DashboardData> {
       llmFailures: llmLogData.failures,
     },
   };
+}
+
+const getCachedDashboardData = unstable_cache(queryDashboardData, [DASHBOARD_DATA_CACHE_TAG], {
+  tags: [DASHBOARD_DATA_CACHE_TAG],
+  revalidate: false,
+});
+
+export async function getDashboardData(): Promise<DashboardData> {
+  return getCachedDashboardData();
 }

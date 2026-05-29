@@ -12,6 +12,9 @@ const config: Config = {
         accent: "#0f766e",
         signal: "#b45309",
       },
+      fontFamily: {
+        heading: ["var(--font-poppins)", "Arial", "Helvetica", "sans-serif"],
+      },
       boxShadow: {
         panel: "0 1px 2px rgba(16, 24, 40, 0.06)",
       },
