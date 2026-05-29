@@ -54,7 +54,11 @@ export function ProfileMenu({ image, name, email, compact = false, signOutAction
         type="button"
       >
         {compact ? (
-          <Github className="h-4 w-4" aria-hidden="true" />
+          image ? (
+            <img className="h-6 w-6 shrink-0 rounded-full" src={image} alt="" />
+          ) : (
+            <Github className="h-4 w-4" aria-hidden="true" />
+          )
         ) : (
           <>
             {image ? (
