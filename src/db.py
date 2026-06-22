@@ -2,7 +2,7 @@ import hashlib
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -186,6 +186,9 @@ def _create_sqlite_schema(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_findings_run_id ON findings(run_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_source_logs_run_id ON source_logs(run_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_logs_run_id ON llm_logs(run_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_runs_started_at ON agent_runs(started_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_source_logs_checked_at ON source_logs(checked_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_findings_created_at ON findings(created_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_logs_created_at ON llm_logs(created_at)")
     _backfill_seen_posts_from_findings(conn)
 
@@ -284,6 +287,9 @@ def _create_postgres_schema(conn: Any) -> None:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_findings_run_id ON findings(run_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_source_logs_run_id ON source_logs(run_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_llm_logs_run_id ON llm_logs(run_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_agent_runs_started_at ON agent_runs(started_at)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_source_logs_checked_at ON source_logs(checked_at)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_findings_created_at ON findings(created_at)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_llm_logs_created_at ON llm_logs(created_at)")
         _backfill_seen_posts_from_findings(conn)
 
@@ -570,15 +576,44 @@ def seen_post_diagnostics(url: str, content_hash: str) -> dict[str, Any]:
                 "already_seen": False,
             }
 
-        _execute(
-            conn,
-            f"""
-            UPDATE seen_posts
-            SET last_seen_at = {ph}
-            WHERE normalized_url = {ph} OR content_hash = {ph}
-            """,
-            (_now_iso(), normalized_url, content_hash),
+        touch_interval_hours = max(
+            0, getattr(settings, "seen_post_touch_interval_hours", 24)
         )
+        now = datetime.now(timezone.utc)
+        if touch_interval_hours == 0:
+            _execute(
+                conn,
+                f"""
+                UPDATE seen_posts
+                SET last_seen_at = {ph}
+                WHERE normalized_url = {ph} OR content_hash = {ph}
+                """,
+                (now.isoformat(), normalized_url, content_hash),
+            )
+        else:
+            touch_cutoff = (now - timedelta(hours=touch_interval_hours)).isoformat()
+            if db_backend() == "postgres":
+                _execute(
+                    conn,
+                    f"""
+                    UPDATE seen_posts
+                    SET last_seen_at = {ph}
+                    WHERE (normalized_url = {ph} OR content_hash = {ph})
+                      AND last_seen_at < {ph}
+                    """,
+                    (now.isoformat(), normalized_url, content_hash, touch_cutoff),
+                )
+            else:
+                _execute(
+                    conn,
+                    f"""
+                    UPDATE seen_posts
+                    SET last_seen_at = {ph}
+                    WHERE (normalized_url = {ph} OR content_hash = {ph})
+                      AND datetime(last_seen_at) < datetime({ph})
+                    """,
+                    (now.isoformat(), normalized_url, content_hash, touch_cutoff),
+                )
         return {
             "normalized_url": normalized_url,
             "already_seen_by_url": already_seen_by_url,
@@ -765,3 +800,68 @@ def mark_notified(url: str, content_hash: str) -> None:
                 content_hash,
             ),
         )
+
+
+def cleanup_expired_data(cutoff: datetime) -> dict[str, int]:
+    if cutoff.tzinfo is None:
+        raise ValueError("Retention cutoff must be timezone-aware.")
+
+    cutoff_utc = cutoff.astimezone(timezone.utc).isoformat()
+    timestamp_expressions = {
+        "llm_logs": "created_at",
+        "findings": "created_at",
+        "source_logs": "checked_at",
+    }
+    deleted = {
+        "llm_logs": 0,
+        "findings": 0,
+        "source_logs": 0,
+        "agent_runs": 0,
+    }
+
+    with _connect() as conn:
+        ph = _placeholder()
+        for table_name, timestamp_column in timestamp_expressions.items():
+            if db_backend() == "postgres":
+                cursor = _execute(
+                    conn,
+                    f"""
+                    DELETE FROM {table_name}
+                    WHERE {timestamp_column} < {ph}
+                       OR run_id IN (
+                           SELECT id FROM agent_runs WHERE started_at < {ph}
+                       )
+                    """,
+                    (cutoff_utc, cutoff_utc),
+                )
+            else:
+                cursor = _execute(
+                    conn,
+                    f"""
+                    DELETE FROM {table_name}
+                    WHERE datetime({timestamp_column}) < datetime({ph})
+                       OR run_id IN (
+                           SELECT id
+                           FROM agent_runs
+                           WHERE datetime(started_at) < datetime({ph})
+                       )
+                    """,
+                    (cutoff_utc, cutoff_utc),
+                )
+            deleted[table_name] = max(0, cursor.rowcount)
+
+        if db_backend() == "postgres":
+            cursor = _execute(
+                conn,
+                f"DELETE FROM agent_runs WHERE started_at < {ph}",
+                (cutoff_utc,),
+            )
+        else:
+            cursor = _execute(
+                conn,
+                f"DELETE FROM agent_runs WHERE datetime(started_at) < datetime({ph})",
+                (cutoff_utc,),
+            )
+        deleted["agent_runs"] = max(0, cursor.rowcount)
+
+    return deleted

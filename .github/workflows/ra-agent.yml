@@ -14,6 +14,8 @@ jobs:
     env:
       DB_BACKEND: postgres
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATA_RETENTION_DAYS: ${{ vars.DATA_RETENTION_DAYS || '90' }}
+      SEEN_POST_TOUCH_INTERVAL_HOURS: ${{ vars.SEEN_POST_TOUCH_INTERVAL_HOURS || '24' }}
 
       RA_WEBSITE_URL: ${{ secrets.RA_WEBSITE_URL }}
       MIN_SCORE: ${{ secrets.MIN_SCORE }}

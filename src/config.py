@@ -29,6 +29,10 @@ class Settings:
     db_backend: str = field(default_factory=lambda: _env_str("DB_BACKEND", "sqlite").lower())
     sqlite_path: str = field(default_factory=lambda: _env_str("SQLITE_PATH", "data/ra_agent.sqlite"))
     database_url: str = field(default_factory=lambda: _env_str("DATABASE_URL"))
+    data_retention_days: int = field(default_factory=lambda: _env_int("DATA_RETENTION_DAYS", 90))
+    seen_post_touch_interval_hours: int = field(
+        default_factory=lambda: _env_int("SEEN_POST_TOUCH_INTERVAL_HOURS", 24)
+    )
     use_outlook_source: bool = field(default_factory=lambda: _env_bool("USE_OUTLOOK_SOURCE"))
     microsoft_tenant_id: str = field(default_factory=lambda: _env_str("MICROSOFT_TENANT_ID"))
     microsoft_client_id: str = field(default_factory=lambda: _env_str("MICROSOFT_CLIENT_ID"))

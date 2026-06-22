@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 from src.config import settings
@@ -16,10 +17,29 @@ from src.db import (
     db_backend,
     normalize_url,
     seen_post_diagnostics,
+    cleanup_expired_data,
 )
 from src.scanner import scan_basic_links
 from src.classifier import classify_text, reset_llm_runtime_state
 from src.notifier import notify, format_message, send_gmail
+
+
+def cleanup_expired_history() -> None:
+    retention_days = max(0, settings.data_retention_days)
+    if retention_days == 0:
+        return
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    try:
+        deleted = cleanup_expired_data(cutoff)
+        print(
+            "[retention] "
+            f"cutoff={cutoff.isoformat()} "
+            + " ".join(f"{table}={count}" for table, count in deleted.items())
+        )
+    except Exception as exc:
+        print(f"[retention] cleanup failed: {exc}")
+
 
 def process_items(
     source: str,
@@ -260,6 +280,9 @@ def run_scan(send_notifications: bool = True, persist: bool = True) -> None:
         f"non_relevant={total_non_relevant}, "
         f"notifications_sent={notifications_sent}"
     )
+
+    if persist:
+        cleanup_expired_history()
 
     if source_errors and sources_checked == len(source_errors):
         raise RuntimeError("All sources failed: " + "; ".join(source_errors))

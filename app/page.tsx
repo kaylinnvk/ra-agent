@@ -224,18 +224,18 @@ async function Dashboard({ activeTab, session }: { activeTab: DashboardTab; sess
 
         <div className="mx-auto grid w-full max-w-7xl min-w-0 gap-5 px-4 py-5 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-            <StatCard label="Total runs" value={data.totals.totalRuns} icon={Server} tone="teal" />
-            <StatCard label="Successful" value={data.totals.successfulRuns} icon={CheckCircle2} tone="green" />
-            <StatCard label="Failed" value={data.totals.failedRuns} icon={XCircle} tone="rose" />
+            <StatCard label="Runs · 90d" value={data.totals.totalRuns} icon={Server} tone="teal" />
+            <StatCard label="Successful · 90d" value={data.totals.successfulRuns} icon={CheckCircle2} tone="green" />
+            <StatCard label="Failed · 90d" value={data.totals.failedRuns} icon={XCircle} tone="rose" />
             {activeTab === "gemini" ? (
               <>
-                <StatCard label="Gemini success" value={data.totals.llmSuccesses} icon={CheckCircle2} tone="amber" />
-                <StatCard label="Gemini failed" value={data.totals.llmFailures} icon={XCircle} tone="blue" className="col-span-2 lg:col-span-1" />
+                <StatCard label="Gemini success · 90d" value={data.totals.llmSuccesses} icon={CheckCircle2} tone="amber" />
+                <StatCard label="Gemini failed · 90d" value={data.totals.llmFailures} icon={XCircle} tone="blue" className="col-span-2 lg:col-span-1" />
               </>
             ) : (
               <>
-                <StatCard label="Relevant posts" value={data.totals.relevantFindings} icon={Search} tone="amber" />
-                <StatCard label="Notifications" value={data.totals.notificationsSent} icon={Bell} tone="blue" className="col-span-2 lg:col-span-1" />
+                <StatCard label="Relevant posts · 90d" value={data.totals.relevantFindings} icon={Search} tone="amber" />
+                <StatCard label="Notifications · 90d" value={data.totals.notificationsSent} icon={Bell} tone="blue" className="col-span-2 lg:col-span-1" />
               </>
             )}
           </div>

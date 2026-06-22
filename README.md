@@ -38,6 +38,7 @@ RA Agent scans RA/research opportunity posts, filters them for relevance, sends 
 - Gemini classification for relevant candidates
 - Gmail notifications for new relevant RA posts
 - Supabase Postgres storage for runs, source checks, findings, and LLM logs
+- Configurable operational-log retention with throttled seen-post timestamps
 - Vercel-hosted Next.js dashboard
 - GitHub OAuth login with Auth.js, including a dev-only auth bypass for local UI work
 
@@ -81,7 +82,16 @@ For production scanner runs, use Supabase Postgres:
 ```env
 DB_BACKEND=postgres
 DATABASE_URL=postgresql://...
+DATA_RETENTION_DAYS=90
+SEEN_POST_TOUCH_INTERVAL_HOURS=24
 ```
+
+Operational run, source, finding, and Gemini history is retained for 90 days by
+default. Dashboard totals cover that retained window. `seen_posts` is kept
+indefinitely so an old listing cannot become new again after cleanup, while its
+`last_seen_at` timestamp is updated at most once every 24 hours. Set
+`DATA_RETENTION_DAYS=0` to keep operational history indefinitely, or
+`SEEN_POST_TOUCH_INTERVAL_HOURS=0` to restore an update on every sighting.
 
 For Gmail alerts:
 
@@ -133,7 +143,7 @@ DISABLE_AUTH_IN_DEV=true
 
 ### 5. Deploy
 
-- Add scanner secrets to GitHub Actions: `DATABASE_URL`, `RA_WEBSITE_URL`, `MIN_SCORE`, `USE_LLM_CLASSIFIER`, `GEMINI_API_KEY`, Gmail settings.
+- Add scanner secrets to GitHub Actions: `DATABASE_URL`, `RA_WEBSITE_URL`, `MIN_SCORE`, `USE_LLM_CLASSIFIER`, `GEMINI_API_KEY`, Gmail settings, and optional retention overrides.
 - Deploy the Next.js app to Vercel.
 - Add dashboard env vars in Vercel: `DATABASE_URL`, `AUTH_SECRET`, `AUTH_URL`, `AUTH_TRUST_HOST`, `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET`.
 - Set the GitHub OAuth callback URL to:
